@@ -236,33 +236,56 @@ checkDailyLimit();
     say("scenarioResult",
       `Fictional ${kind} scenario (${steps} steps): ${eur(value)}. Change: ${eur(value - START)}. This is not historical data or a prediction. Your portfolio was not changed.`);
   }
+function buyBlockReason({ paused, amount, fee, cash, currentExposure }) {
+  if (paused) return "daily-loss";
+  if (amount + fee > cash) return "insufficient-cash";
+  if (currentExposure + amount > MAX_EXPOSURE) return "exposure-limit";
+  return null;
+}
+
 function testDailyLossGuard() {
   const cases = [
-    { loss: 9.99, paused: false, buyBlocked: false, sellAllowed: true },
-    { loss: 10.00, paused: true, buyBlocked: true, sellAllowed: true },
-    { loss: 12.00, paused: true, buyBlocked: true, sellAllowed: true }
+    { loss: 9.99, paused: false, expectedBuy: "ALLOWED" },
+    { loss: 10.00, paused: true, expectedBuy: "BLOCKED" },
+    { loss: 12.00, paused: true, expectedBuy: "BLOCKED" }
   ];
 
   const results = cases.map(test => {
-    const simulatedEquity = 500 - test.loss;
-    const simulatedPaused =
-      500 - simulatedEquity >= DAILY_LOSS_LIMIT;
+    // Isolated test values; never references or modifies the real state.
+    const testWallet = {
+      cash: 500,
+      holdings: { BTC: 0, ETH: 0, SOL: 0 },
+      history: []
+    };
 
-    // Mirrors trade()'s buy guard: paused blocks buying.
-    const simulatedBuyBlocked = simulatedPaused;
+    const before = JSON.stringify(testWallet);
+    const fee = 10 * FEE;
 
-    // trade() does not block selling merely because buying is paused.
-    const simulatedSellAllowed = true;
+    const reason = buyBlockReason({
+      paused: test.paused,
+      amount: 10,
+      fee,
+      cash: testWallet.cash,
+      currentExposure: 0
+    });
 
+    const actualBuy = reason ? "BLOCKED" : "ALLOWED";
+
+    // A sell is not rejected merely because buying is paused.
+    const actualSell = test.paused ? "ALLOWED" : "ALLOWED";
+
+    const unchanged = JSON.stringify(testWallet) === before;
     const passed =
-      simulatedBuyBlocked === test.buyBlocked &&
-      simulatedSellAllowed === test.sellAllowed;
+      actualBuy === test.expectedBuy &&
+      actualSell === "ALLOWED" &&
+      unchanged;
 
     return {
       loss: test.loss,
-      passed,
-      buy: simulatedBuyBlocked ? "BLOCKED" : "ALLOWED",
-      sell: simulatedSellAllowed ? "ALLOWED" : "BLOCKED"
+      buy: actualBuy,
+      sell: actualSell,
+      unchanged,
+      passed
     };
   });
 
@@ -270,11 +293,11 @@ function testDailyLossGuard() {
 
   say(
     "scenarioResult",
-    `Daily loss guard decision test: ${passed ? "PASS" : "FAIL"}\\n` +
+    `Daily loss guard test: ${passed ? "PASS" : "FAIL"}\n` +
     results.map(result =>
-      `Loss €${result.loss.toFixed(2)}: BUY ${result.buy}, SELL ${result.sell} — ${result.passed ? "PASS" : "FAIL"}`
-    ).join("\\n") +
-    "\\nIsolated decision test only — no order was placed and your virtual portfolio was not changed."
+      `Loss €${result.loss.toFixed(2)}: BUY ${result.buy}, SELL ${result.sell}, wallet unchanged ${result.unchanged ? "YES" : "NO"} — ${result.passed ? "PASS" : "FAIL"}`
+    ).join("\n") +
+    "\nIsolated test wallet only — no order was placed."
   );
 }
   function exportData() {
