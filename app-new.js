@@ -161,7 +161,7 @@
 
     const fee = amount * FEE;
     const quantity = amount / prices[coin];
-
+checkDailyLimit();
     if (side === "buy") {
       if (state.paused) {
         say("orderMessage", "Buying paused by the simulated loss limit.");
