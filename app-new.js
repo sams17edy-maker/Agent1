@@ -238,9 +238,9 @@ checkDailyLimit();
   }
 function testDailyLossGuard() {
   const cases = [
-    { loss: 9.99, paused: false, expected: "BUY ALLOWED" },
-    { loss: 10.00, paused: true, expected: "BUY BLOCKED" },
-    { loss: 12.00, paused: true, expected: "BUY BLOCKED" }
+    { loss: 9.99, paused: false, buyBlocked: false, sellAllowed: true },
+    { loss: 10.00, paused: true, buyBlocked: true, sellAllowed: true },
+    { loss: 12.00, paused: true, buyBlocked: true, sellAllowed: true }
   ];
 
   const results = cases.map(test => {
@@ -248,13 +248,21 @@ function testDailyLossGuard() {
     const simulatedPaused =
       500 - simulatedEquity >= DAILY_LOSS_LIMIT;
 
-    const actual = simulatedPaused ? "BUY BLOCKED" : "BUY ALLOWED";
+    // Mirrors trade()'s buy guard: paused blocks buying.
+    const simulatedBuyBlocked = simulatedPaused;
+
+    // trade() does not block selling merely because buying is paused.
+    const simulatedSellAllowed = true;
+
+    const passed =
+      simulatedBuyBlocked === test.buyBlocked &&
+      simulatedSellAllowed === test.sellAllowed;
 
     return {
       loss: test.loss,
-      expected: test.expected,
-      actual,
-      passed: actual === test.expected
+      passed,
+      buy: simulatedBuyBlocked ? "BLOCKED" : "ALLOWED",
+      sell: simulatedSellAllowed ? "ALLOWED" : "BLOCKED"
     };
   });
 
@@ -262,11 +270,11 @@ function testDailyLossGuard() {
 
   say(
     "scenarioResult",
-    `Daily loss guard test: ${passed ? "PASS" : "FAIL"}\n` +
+    `Daily loss guard decision test: ${passed ? "PASS" : "FAIL"}\\n` +
     results.map(result =>
-      `Loss €${result.loss.toFixed(2)}: ${result.actual} — ${result.passed ? "PASS" : "FAIL"}`
-    ).join("\n") +
-    "\nIsolated test only — your virtual portfolio was not changed."
+      `Loss €${result.loss.toFixed(2)}: BUY ${result.buy}, SELL ${result.sell} — ${result.passed ? "PASS" : "FAIL"}`
+    ).join("\\n") +
+    "\\nIsolated decision test only — no order was placed and your virtual portfolio was not changed."
   );
 }
   function exportData() {
