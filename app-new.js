@@ -236,7 +236,34 @@ checkDailyLimit();
     say("scenarioResult",
       `Fictional ${kind} scenario (${steps} steps): ${eur(value)}. Change: ${eur(value - START)}. This is not historical data or a prediction. Your portfolio was not changed.`);
   }
+function testDailyLossGuard() {
+  const cases = [
+    { loss: 9.99, expected: false },
+    { loss: 10.00, expected: true },
+    { loss: 12.00, expected: true }
+  ];
 
+  const results = cases.map(test => {
+    const paused = test.loss >= DAILY_LOSS_LIMIT;
+    return {
+      loss: test.loss,
+      expected: test.expected,
+      passed: paused === test.expected
+    };
+  });
+
+  const passed = results.every(result => result.passed);
+
+  say(
+    "scenarioResult",
+    `Daily loss guard test: ${passed ? "PASS" : "FAIL"}\n` +
+    results.map(result =>
+      `Loss €${result.loss.toFixed(2)}: ` +
+      `${result.passed ? "PASS" : "FAIL"}`
+    ).join("\n") +
+    "\nIsolated test only — your portfolio was not changed."
+  );
+}
   function exportData() {
     const blob = new Blob(
       [JSON.stringify({ mode: "paper-only", state }, null, 2)],
