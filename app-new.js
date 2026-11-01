@@ -238,17 +238,23 @@ checkDailyLimit();
   }
 function testDailyLossGuard() {
   const cases = [
-    { loss: 9.99, expected: false },
-    { loss: 10.00, expected: true },
-    { loss: 12.00, expected: true }
+    { loss: 9.99, paused: false, expected: "BUY ALLOWED" },
+    { loss: 10.00, paused: true, expected: "BUY BLOCKED" },
+    { loss: 12.00, paused: true, expected: "BUY BLOCKED" }
   ];
 
   const results = cases.map(test => {
-    const paused = test.loss >= DAILY_LOSS_LIMIT;
+    const simulatedEquity = 500 - test.loss;
+    const simulatedPaused =
+      500 - simulatedEquity >= DAILY_LOSS_LIMIT;
+
+    const actual = simulatedPaused ? "BUY BLOCKED" : "BUY ALLOWED";
+
     return {
       loss: test.loss,
       expected: test.expected,
-      passed: paused === test.expected
+      actual,
+      passed: actual === test.expected
     };
   });
 
@@ -258,10 +264,9 @@ function testDailyLossGuard() {
     "scenarioResult",
     `Daily loss guard test: ${passed ? "PASS" : "FAIL"}\n` +
     results.map(result =>
-      `Loss €${result.loss.toFixed(2)}: ` +
-      `${result.passed ? "PASS" : "FAIL"}`
+      `Loss €${result.loss.toFixed(2)}: ${result.actual} — ${result.passed ? "PASS" : "FAIL"}`
     ).join("\n") +
-    "\nIsolated test only — your portfolio was not changed."
+    "\nIsolated test only — your virtual portfolio was not changed."
   );
 }
   function exportData() {
