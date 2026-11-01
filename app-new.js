@@ -291,6 +291,7 @@ function testDailyLossGuard() {
     $("orderBtn")?.addEventListener("click", trade);
     $("reportBtn")?.addEventListener("click", report);
     $("scenarioBtn")?.addEventListener("click", scenario);
+    $("scenarioBtn")?.addEventListener("click", testDailyLossGuard);
     $("exportBtn")?.addEventListener("click", exportData);
     $("resetBtn")?.addEventListener("click", reset);
 
