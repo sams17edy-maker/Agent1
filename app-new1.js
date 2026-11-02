@@ -564,8 +564,6 @@
     ].join("\n"));
     say("reportStatus", "Generated");
   }
-    return `Fictional ${kind} scenario (${steps} steps): ${eur(value)}. Change: ${eur(value - START)}. Not historical data or a prediction; your portfolio was not changed.`;
-  }
 
   function buyBlockReason({ paused, amount, fee, cash, currentExposure }) {
     if (paused) return "daily-loss";
