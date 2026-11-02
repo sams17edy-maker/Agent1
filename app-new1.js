@@ -302,6 +302,18 @@
     const noCoins = processPaperOrder({ wallet: empty, prices: testPrices, side: "sell", coin: "BTC", amount: 10, paused: false });
     check("Sell without sufficient coins rejected", !noCoins.ok && noCoins.reason === "insufficient-coins" && JSON.stringify(empty) === JSON.stringify({ cash: 500, holdings: { BTC: 0, ETH: 0, SOL: 0 }, history: [] }));
 
+    // Portfolio accounting: equity equals cash plus marked holdings, and fees reduce equity exactly.
+    const accountingWallet = { cash: 500, holdings: { BTC: 0, ETH: 0, SOL: 0 }, history: [] };
+    const equity = wallet => wallet.cash + Object.entries(wallet.holdings)
+      .reduce((sum, [coin, qty]) => sum + qty * testPrices[coin], 0);
+    const accountingBuy = processPaperOrder({ wallet: accountingWallet, prices: testPrices, side: "buy", coin: "BTC", amount: 10, paused: false });
+    const buyEquity = accountingBuy.ok ? equity(accountingBuy.next) : NaN;
+    const accountingSell = accountingBuy.ok ? processPaperOrder({ wallet: accountingBuy.next, prices: testPrices, side: "sell", coin: "BTC", amount: 10, paused: false }) : { ok: false };
+    const sellEquity = accountingSell.ok ? equity(accountingSell.next) : NaN;
+    check("Portfolio accounting after buy (€499.98)", accountingBuy.ok && Math.abs(buyEquity - 499.98) < 1e-9);
+    check("Portfolio accounting after round trip (€499.96)", accountingSell.ok && Math.abs(sellEquity - 499.96) < 1e-9 && accountingSell.next.holdings.BTC === 0);
+    check("Accounting tests leave main portfolio unchanged", JSON.stringify(state) === JSON.stringify(load()));
+
     const passed = lines.every(line => line.endsWith("PASS"));
     return `Paper safeguards: ${passed ? "ALL PASS" : "FAIL"}\\n` + lines.join("\\n") +
       "\\nIsolated test wallets only; no real or main-portfolio order was placed.";
