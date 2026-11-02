@@ -15,14 +15,11 @@
   }).format(Number(n) || 0);
 
   const initial = () => ({
-    cash: START,
-    holdings: { BTC: 0, ETH: 0, SOL: 0 },
-    history: [],
-    portfolioHistory: [{ time: Date.now(), value: START }],
-    started: Date.now(),
-    day: new Date().toDateString(),
-    dayEquity: START,
-    paused: false
+    cash: START, savings: 0, holdings: { BTC: 0, ETH: 0, SOL: 0 },
+    costBasis: { BTC: 0, ETH: 0, SOL: 0 }, basisInitialized: false,
+    autoTrading: false, autoLastQuoteAt: 0, autoLastAction: "Not started",
+    history: [], portfolioHistory: [{ time: Date.now(), value: START }],
+    started: Date.now(), day: new Date().toDateString(), dayEquity: START, paused: false
   });
 
   function validSavedState(s, now = Date.now()) {
@@ -137,7 +134,7 @@
       .reduce((sum, coin) => sum + (state.holdings[coin] || 0) * prices[coin], 0);
   }
 
-  function total() { return state.cash + exposure(); }
+  function total() { return state.cash + (state.savings || 0) + exposure(); }
 
   function dailyLimitState(previous, equity, today) {
     if (!previous || previous.day !== today) {
@@ -214,6 +211,10 @@
     say("pnl", `${profit >= 0 ? "+" : ""}${eur(profit)} (${(profit / START * 100).toFixed(2)}%)`);
     say("cash", eur(state.cash));
     say("positions", Object.values(state.holdings).filter(q => q > 0).length);
+    say("savings", eur(state.savings || 0));
+    if ($("autoTrading")) $("autoTrading").checked = !!state.autoTrading;
+    say("autoStatus", state.autoTrading ? "ON · paper-only" : "OFF · manual paper orders");
+    say("autoDecision", state.autoLastAction || "No autonomous decision yet.");
     say("orders", state.history.length);
     say("day", `${elapsedMinutes} / 30 min`);
     if (elapsedMinutes >= 30) say("marketStatus", "30-minute paper experiment complete. No real orders were placed.");
@@ -252,10 +253,13 @@
     say("marketStatus", "Loading public prices...");
     try {
       const fresh = await getPrices();
-      prices = fresh;
-      pricesUpdatedAt = Date.now();
-      render();
-      save();
+      prices = fresh; pricesUpdatedAt = Date.now();
+      if (!state.basisInitialized) {
+        state.costBasis = { BTC: 0, ETH: 0, SOL: 0, ...(state.costBasis || {}) };
+        for (const c of ["BTC", "ETH", "SOL"]) state.costBasis[c] = (state.holdings[c] || 0) * prices[c];
+        state.basisInitialized = true;
+      }
+      render(); runAutonomousDecision(); save();
     } catch (e) {
       say("marketStatus", "Public prices temporarily unavailable.");
       console.warn(e);
@@ -281,10 +285,15 @@
     }
 
     const next = {
-      ...wallet,
+      ...wallet, savings: Number.isFinite(wallet.savings) ? wallet.savings : 0,
+      costBasis: { BTC: 0, ETH: 0, SOL: 0, ...(wallet.costBasis || {}) },
       holdings: { BTC: 0, ETH: 0, SOL: 0, ...wallet.holdings },
       history: Array.isArray(wallet.history) ? [...wallet.history] : []
     };
+    if (!next.basisInitialized) {
+      for (const c of supportedCoins) next.costBasis[c] = next.holdings[c] * quote[c];
+      next.basisInitialized = true;
+    }
     const fee = amount * FEE;
     const quantity = amount / quote[coin];
     const currentExposure = ["BTC", "ETH", "SOL"]
@@ -297,18 +306,22 @@
       if (reason) return { ok: false, reason };
       next.cash -= amount + fee;
       next.holdings[coin] += quantity;
+      next.costBasis[coin] += amount + fee;
     } else {
-      if (quantity > next.holdings[coin]) {
-        return { ok: false, reason: "insufficient-coins" };
-      }
+      if (quantity > next.holdings[coin]) return { ok: false, reason: "insufficient-coins" };
+      const basisBefore = next.costBasis[coin] || 0;
+      const soldBasis = next.holdings[coin] > 0 ? basisBefore * (quantity / next.holdings[coin]) : 0;
       next.holdings[coin] -= quantity;
-      next.cash += amount - fee;
+      next.costBasis[coin] = Math.max(0, basisBefore - soldBasis);
+      const netProceeds = amount - fee, realizedNet = netProceeds - soldBasis;
+      next.cash += netProceeds;
+      let savingsTransfer = 0;
+      if (realizedNet > 0) { savingsTransfer = realizedNet * 0.5; next.cash -= savingsTransfer; next.savings += savingsTransfer; }
+      next.history.unshift({ time: Date.now(), side: "SELL", coin, amount, fee, realizedNet, savingsTransfer, soldBasis });
+      return { ok: true, next, fee, quantity, realizedNet, savingsTransfer };
     }
-
-    next.history.unshift({
-      time: Date.now(), side: side.toUpperCase(), coin, amount, fee
-    });
-    return { ok: true, next, fee, quantity };
+    next.history.unshift({ time: Date.now(), side: "BUY", coin, amount, fee });
+    return { ok: true, next, fee, quantity, realizedNet: 0, savingsTransfer: 0 };
   }
 
   async function trade() {
@@ -342,6 +355,28 @@
     render();
     say("orderMessage",
       `Simulated ${side} completed. Fee: ${eur(result.fee)}. No real order was sent.`);
+  }
+
+  function runAutonomousDecision() {
+    if (!state.autoTrading || !pricesUsable(prices, pricesUpdatedAt) || pricesUpdatedAt <= (state.autoLastQuoteAt || 0)) return;
+    state.autoLastQuoteAt = pricesUpdatedAt; checkDailyLimit();
+    let journal; try { journal = JSON.parse(localStorage.getItem("agent1-learning-journal-v1") || "{}"); } catch { journal = {}; }
+    const quotes = Array.isArray(journal.quotes) ? journal.quotes : [];
+    if (quotes.length < 4) { state.autoLastAction = "Waiting for 4 time-separated observations."; save(); return; }
+    const hurdle = FEE * 2 + 0.002, choices = [];
+    for (const coin of ["BTC","ETH","SOL"]) {
+      const v=quotes.slice(-4).map(q=>Number(q[coin]));
+      if(v.length!==4 || v.some(x=>!Number.isFinite(x)||x<=0)) continue;
+      const r=v.slice(1).map((x,i)=>x/v[i]-1), avg=r.reduce((s,x)=>s+x,0)/r.length, held=state.holdings[coin]||0;
+      if(!state.paused && held===0 && avg<=-hurdle && r[2]<0 && r[2+0] < 0 && r[2] > r[1]) choices.push({side:"buy",coin,score:-avg});
+      if(held>0 && avg>=hurdle && r[2]>0 && held*prices[coin]*(1-FEE)>(state.costBasis[coin]||Infinity)) choices.push({side:"sell",coin,score:avg});
+    }
+    if(!choices.length){state.autoLastAction="No trade: no confirmed signal or safeguards not met.";save();return;}
+    choices.sort((a,b)=>b.score-a.score); const pick=choices[0];
+    const amount=Math.min(25,MAX_ORDER);
+    const result=processPaperOrder({wallet:state,prices,side:pick.side,coin:pick.coin,amount,paused:state.paused});
+    if(result.ok){state={...state,...result.next};state.autoLastAction="Auto paper "+pick.side.toUpperCase()+" "+pick.coin+" · "+eur(amount)+" · fee "+eur(result.fee)+(result.savingsTransfer?" · savings "+eur(result.savingsTransfer):"");save();render();}
+    else {state.autoLastAction="Blocked by safeguard: "+result.reason;save();}
   }
 
   function report() {
@@ -631,6 +666,7 @@
   function start() {
     $("refreshBtn")?.addEventListener("click", refresh);
     $("orderBtn")?.addEventListener("click", trade);
+    $("autoTrading")?.addEventListener("change", e => { state.autoTrading=!!e.target.checked; state.autoLastAction=state.autoTrading?"Enabled; waiting for fresh quote.":"Stopped by user."; save(); render(); });
     $("reportBtn")?.addEventListener("click", report);
     $("scenarioBtn")?.addEventListener("click", () => {
       say("scenarioResult", scenario() + "\n\n" + testDailyLossGuard());
