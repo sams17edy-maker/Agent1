@@ -1,0 +1,19 @@
+{
+  "name": "Crypto AI Trader — Paper",
+  "short_name": "Crypto Paper",
+  "description": "Educational cryptocurrency paper-trading simulator. No real trading.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0b1220",
+  "theme_color": "#101827",
+  "icons": [
+    {
+      "src": "/app-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}
