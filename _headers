@@ -1,0 +1,14 @@
+/ 
+  Cache-Control: no-cache, no-store, must-revalidate
+
+/index.html
+  Cache-Control: no-cache, no-store, must-revalidate
+
+/manifest.webmanifest
+  Cache-Control: no-cache, no-store, must-revalidate
+
+/app-new1.js
+  Cache-Control: no-cache, no-store, must-revalidate
+
+/learning.js
+  Cache-Control: no-cache, no-store, must-revalidate
