@@ -695,8 +695,14 @@
     say("cloudDailyReport", "Cloud scheduler status not verified.");
 
     refresh();
-    // Five-minute public quote cadence supports spaced paper observations; no exchange access.
-    setInterval(refresh, 5 * 60 * 1000);
+    // Frequent public reference-price polling for faster paper-only evaluation.
+    // Slow down while hidden to reduce unnecessary requests and respect browser throttling.
+    setInterval(() => {
+      if (document.visibilityState === "visible") refresh();
+    }, 30 * 1000);
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") refresh();
+    });
   }
 
   if (document.readyState === "loading") {
