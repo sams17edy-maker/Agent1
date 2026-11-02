@@ -39,7 +39,8 @@ footer{max-width:980px;margin:14px auto;padding:0 16px;color:var(--muted);font-s
   <div class="big" id="equity">€500.00</div>
   <div class="row"><span class="sub">Starting balance €500.00</span><strong id="pnl">€0.00 (0.00%)</strong></div>
   <div class="grid" style="margin-top:14px">
-   <div class="stat"><span class="label">Available cash</span><strong id="cash">€500.00</strong></div>
+   <div class="stat"><span class="label">Trading cash</span><strong id="cash">€500.00</strong></div>
+   <div class="stat"><span class="label">Virtual profit savings (not tradable)</span><strong id="savings">€0.00</strong></div>
    <div class="stat"><span class="label">Open positions</span><strong id="positions">0</strong></div>
    <div class="stat"><span class="label">Completed orders</span><strong id="orders">0</strong></div>
    <div class="stat"><span class="label">Experiment time</span><strong id="day">0 / 30 min</strong></div>
@@ -60,6 +61,7 @@ footer{max-width:980px;margin:14px auto;padding:0 16px;color:var(--muted);font-s
    <div class="field" style="grid-column:1/-1"><label for="amount">Order value (€)</label><input id="amount" type="number" min="1" max="50" step="1" value="25"></div>
   </div>
   <div class="actions"><button id="orderBtn">Place simulated order</button></div>
+  <div class="notice" style="margin-top:12px"><label style="display:flex;gap:10px;align-items:center;color:var(--text)"><input id="autoTrading" type="checkbox" style="width:auto"> Enable autonomous paper trading (virtual funds only)</label><div class="sub" id="autoStatus" aria-live="polite">OFF · manual paper orders</div><div class="sub" id="autoDecision" aria-live="polite">No autonomous decision yet.</div></div>
   <p class="sub" id="orderMessage" aria-live="polite">Max €50 per order · Max €250 total exposure · No leverage.</p>
  </section>
  <section class="panel">
