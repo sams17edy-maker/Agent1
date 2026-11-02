@@ -394,7 +394,7 @@
     // distinct observation. No multi-minute averaging delay.
     const recent = state.history.slice(0, 20).filter(t => Number.isFinite(t.realizedNet));
     const winRate = recent.length ? recent.filter(t => t.realizedNet > 0).length / recent.length : 0.5;
-    const hurdle = FEE * 2 + 0.002 + (recent.length >= 5 && winRate < 0.4 ? 0.003 : 0);
+    const hurdle = FEE * 2 + 0.0005 + (recent.length >= 5 && winRate < 0.4 ? 0.002 : 0);
     const choices = [];
     for (const coin of COIN_SYMBOLS) {
       const nowPrice = Number(previous[coin]);
