@@ -170,6 +170,11 @@
     if ($(id)) $(id).textContent = value;
   }
 
+  function updateModeIndicator() {
+    const pill = $("liveModePill");
+    if (pill) pill.textContent = state.autoTrading ? "LIVE TRADING ON" : "LIVE TRADING OFF";
+  }
+
   async function getPrices() {
     const url = "https://api.coingecko.com/api/v3/simple/price?ids=" + COIN_SYMBOLS.map(c => COINS[c].id).join(",") + "&vs_currencies=eur";
     const response = await fetch(url);
@@ -276,6 +281,7 @@
     say("positions", Object.values(state.holdings).filter(q => q > 0).length);
     say("savings", eur(state.savings || 0));
     if ($("autoTrading")) $("autoTrading").checked = !!state.autoTrading;
+    updateModeIndicator();
     say("autoStatus", state.autoTrading ? "ON · paper-only" : "OFF · manual paper orders");
     say("autoDecision", state.autoLastAction || "No autonomous decision yet.");
     say("orders", state.history.length);
@@ -805,6 +811,7 @@
   }
 
   function start() {
+    updateModeIndicator();
     ensureSpeedMonitor();
     ensurePerformanceMonitor();
     $("refreshBtn")?.addEventListener("click", refresh);
@@ -813,6 +820,7 @@
       const requested = !!e.target.checked;
       state.autoLastAction = requested ? "Enabled; waiting for fresh quote." : "Stopped by user.";
       state.autoTrading = requested;
+      updateModeIndicator();
       save();
       render();
       if (requested) refresh();
