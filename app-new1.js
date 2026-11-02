@@ -763,7 +763,8 @@
     // Feed validation: fail closed on missing, malformed, stale, or future quotes.
     const fixedNow = 1000000;
     check("Missing price feed rejected", !pricesUsable(null, fixedNow, fixedNow));
-    check("Invalid price feed rejected", !pricesUsable({ ...testPrices, ETH: 0 }, fixedNow, fixedNow));
+    check("Invalid price feed rejected",
+      !pricesUsable(Object.fromEntries(COIN_SYMBOLS.map(c => [c, 0])), fixedNow, fixedNow));
     check("Stale price feed (>2 minutes) rejected", !pricesUsable(testPrices, fixedNow - MAX_PRICE_AGE_MS - 1, fixedNow));
     check("Fresh price feed accepted", pricesUsable(testPrices, fixedNow, fixedNow));
     check("Future-dated price feed rejected", !pricesUsable(testPrices, fixedNow + 1, fixedNow));
