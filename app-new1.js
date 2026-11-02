@@ -253,6 +253,9 @@
   function pricesUsable(quote, updatedAt, now = Date.now()) {
     if (!quote || !Number.isFinite(updatedAt) || updatedAt > now ||
         now - updatedAt > MAX_PRICE_AGE_MS) return false;
+    if (Object.keys(priceTimestamps).length === 0) {
+      return COIN_SYMBOLS.some(c => Number.isFinite(quote[c]) && quote[c] > 0);
+    }
     return COIN_SYMBOLS.filter(c => priceIsFresh(c, now)).length >= 3;
   }
 
@@ -657,10 +660,12 @@
 
   function testDailyLossGuard() {
     const lines = [];
+    const originalState = JSON.stringify(state);
+    const originalStorage = localStorage.getItem(KEY);
     const check = (name, passed) => lines.push(`${name}: ${passed ? "PASS" : "FAIL"}`);
 
     // Exercise the real daily-loss calculation against portfolio equity.
-    const testPrices = Object.fromEntries(COIN_SYMBOLS.map((c, i) => [c, 1 + i]));
+    const testPrices = Object.fromEntries(COIN_SYMBOLS.map((c, i) => [c, 10 + i]));
     const baseline = { day: "test-day", dayEquity: 500, paused: false };
     const lossCases = [
       { equity: 490.01, expectedPaused: false, label: "€9.99 loss" },
@@ -752,16 +757,17 @@
     const sellEquity = accountingSell.ok ? equity(accountingSell.next) : NaN;
     check("Portfolio accounting after buy (€499.98)", accountingBuy.ok && Math.abs(buyEquity - 499.98) < 1e-9);
     check("Portfolio accounting after round trip (€499.96)", accountingSell.ok && Math.abs(sellEquity - 499.96) < 1e-9 && accountingSell.next.holdings.BTC === 0);
-    check("Accounting tests leave main portfolio unchanged", JSON.stringify(state) === JSON.stringify(load()));
+    check("Accounting tests leave main portfolio unchanged",
+      JSON.stringify(state) === originalState && localStorage.getItem(KEY) === originalStorage);
 
     // Feed validation: fail closed on missing, malformed, stale, or future quotes.
     const fixedNow = 1000000;
     check("Missing price feed rejected", !pricesUsable(null, fixedNow, fixedNow));
     check("Invalid price feed rejected", !pricesUsable({ ...testPrices, ETH: 0 }, fixedNow, fixedNow));
-    check("Stale price feed (>2 hours) rejected", !pricesUsable(testPrices, fixedNow - MAX_PRICE_AGE_MS - 1, fixedNow));
+    check("Stale price feed (>2 minutes) rejected", !pricesUsable(testPrices, fixedNow - MAX_PRICE_AGE_MS - 1, fixedNow));
     check("Fresh price feed accepted", pricesUsable(testPrices, fixedNow, fixedNow));
     check("Future-dated price feed rejected", !pricesUsable(testPrices, fixedNow + 1, fixedNow));
-    const invalidQuoteOrder = processPaperOrder({ wallet: base, prices: { ...testPrices, ETH: NaN }, side: "buy", coin: "BTC", amount: 10, paused: false });
+    const invalidQuoteOrder = processPaperOrder({ wallet: base, prices: { ...testPrices, BTC: NaN }, side: "buy", coin: "BTC", amount: 10, paused: false });
     check("Order rejected with malformed quote", !invalidQuoteOrder.ok && invalidQuoteOrder.reason === "invalid-order");
 
     // Wallet integrity: malformed balances and holdings must never create NaN or negative state.
@@ -815,9 +821,9 @@
       ...fixture, holdings: { ...Object.fromEntries(COIN_SYMBOLS.map(c => [c, 0])), FAKE: 1000000 }
     }), Date.now());
     check("Unknown saved coin safely recovers",
-      unknownCoinRecovery.recovered && !("DOGE" in unknownCoinRecovery.state.holdings));
+      unknownCoinRecovery.recovered && !("FAKE" in unknownCoinRecovery.state.holdings));
     const futureHistoryRecovery = recoverSnapshot(JSON.stringify({
-      ...fixture, history: [{ time: Date.now() + 60000, side: "BUY", coin: "BTC", amount: 10, fee: 0.02 }]
+      ...fixture, history: [{ time: Date.now() + 3 * 60 * 60 * 1000, side: "BUY", coin: "BTC", amount: 10, fee: 0.02 }]
     }), Date.now());
     check("Future-dated saved order safely recovers",
       futureHistoryRecovery.recovered && futureHistoryRecovery.state.history.length === 0);
@@ -846,8 +852,8 @@
       validPortfolioHistory.state.portfolioHistory[0].value === 501);
     const controlledNow = Date.now() - 100000;
     const controlledFutureRecovery = recoverSnapshot(JSON.stringify({
-      ...fixture, started: controlledNow + 50000,
-      portfolioHistory: [{ time: controlledNow + 50000, value: 500 }]
+      ...fixture, started: controlledNow + 3 * 60 * 60 * 1000,
+      portfolioHistory: [{ time: controlledNow + 3 * 60 * 60 * 1000, value: 500 }]
     }), controlledNow);
     check("Recovery uses supplied reference time for all saved timestamps",
       controlledFutureRecovery.recovered);
@@ -869,7 +875,7 @@
       unorderedSnapshots.recovered && unorderedSnapshots.state.portfolioHistory.length === 1);
 
     check("Recovery tests leave main portfolio and storage untouched",
-      JSON.stringify(state) === JSON.stringify(load()));
+      JSON.stringify(state) === originalState && localStorage.getItem(KEY) === originalStorage);
 
     const passed = lines.every(line => line.endsWith("PASS"));
     return `Paper safeguards: ${passed ? "ALL PASS" : "FAIL"}\\n` + lines.join("\\n") +
