@@ -178,9 +178,9 @@
     const item = (label, value) => '<div class="stat"><span class="label">' + label + '</span><strong>' + value + '</strong></div>';
     el.innerHTML = [
       item("Realised net P/L", eur(m.realized)),
-      item("Open-position P/L", (m.unrealized >= 0 ? "+" : "") + eur(m.unrealized)),
-      item("Total net P/L", (m.net >= 0 ? "+" : "") + eur(m.net)),
-      item("Portfolio value", eur(m.value)),
+      item("Open-position P/L", Number.isFinite(m.value) ? (m.unrealized >= 0 ? "+" : "") + eur(m.unrealized) : "Incomplete"),
+      item("Total net P/L", Number.isFinite(m.value) ? (m.net >= 0 ? "+" : "") + eur(m.net) : "Incomplete"),
+      item("Portfolio value", Number.isFinite(m.value) ? eur(m.value) : "Incomplete"),
       item("Simulated fees paid", eur(m.fees)),
       item("Profit transferred to savings", eur(m.transferred)),
       item("Virtual savings balance", eur(m.savings)),
@@ -215,35 +215,68 @@
     if (pill) pill.textContent = state.autoTrading ? "AUTO PAPER MODE ON" : "AUTO PAPER MODE OFF";
   }
 
+  // Crypto.com Exchange public spot markets only. Prefer direct EUR pairs;
+  // convert USDT pairs using Crypto.com's own EUR_USDT spot quote.
+  // BNB has no supported spot pair in the current Exchange instrument catalog.
+  const CRYPTOCOM_SPOT_PAIRS = Object.freeze({
+    BTC: ["BTC_EUR", "BTC_USDT"], ETH: ["ETH_EUR", "ETH_USDT"],
+    SOL: ["SOL_EUR", "SOL_USDT"], XRP: ["XRP_EUR", "XRP_USDT"],
+    BNB: [], ADA: ["ADA_EUR", "ADA_USDT"], DOGE: ["DOGE_EUR", "DOGE_USDT"],
+    LINK: ["LINK_USDT"], AVAX: ["AVAX_USDT"], DOT: ["DOT_USDT"],
+    LTC: ["LTC_USDT"], BCH: ["BCH_USDT"], XLM: ["XLM_USDT"],
+    UNI: ["UNI_USDT"], ATOM: ["ATOM_USDT"], NEAR: ["NEAR_USDT"],
+    ETC: ["ETC_USDT"], APT: ["APT_USDT"], ARB: ["ARB_USDT"], OP: ["OP_USDT"]
+  });
+
   async function getPrices() {
-    const url = "https://api.coingecko.com/api/v3/simple/price?ids=" +
-      COIN_SYMBOLS.map(c => COINS[c].id).join(",") +
-      "&vs_currencies=eur&include_last_updated_at=true";
+    const url = "https://api.crypto.com/exchange/v1/public/get-tickers";
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 12000);
     try {
       const response = await fetch(url, { signal: controller.signal });
-      if (!response.ok) throw new Error(response.status === 429 ? "Price service rate limited" : "Price service unavailable");
-      const data = await response.json();
+      if (!response.ok) throw new Error(response.status === 429 ? "Crypto.com price service rate limited" : "Crypto.com price service unavailable");
+      const payload = await response.json();
+      if (payload?.code !== 0 || !Array.isArray(payload?.result?.data)) {
+        throw new Error("Crypto.com returned an invalid ticker response");
+      }
+      const tickers = new Map(payload.result.data
+        .filter(t => t && typeof t.i === "string")
+        .map(t => [t.i, t]));
+      const fxTicker = tickers.get("EUR_USDT");
+      const eurUsdt = Number(fxTicker?.a);
+      const fxUpdatedAt = Number(fxTicker?.t);
+      const fxUsable = Number.isFinite(eurUsdt) && eurUsdt > 0 &&
+        Number.isFinite(fxUpdatedAt) && fxUpdatedAt > 0;
       const p = {}, timestamps = {};
       for (const coin of COIN_SYMBOLS) {
-        const item = data[COINS[coin].id];
-        const value = Number(item?.eur);
-        const updatedAt = Number(item?.last_updated_at) * 1000;
-        if (Number.isFinite(value) && value > 0) p[coin] = value;
-        if (Number.isFinite(updatedAt) && updatedAt > 0) timestamps[coin] = updatedAt;
+        for (const pair of (CRYPTOCOM_SPOT_PAIRS[coin] || [])) {
+          const ticker = tickers.get(pair);
+          const value = Number(ticker?.a);
+          const updatedAt = Number(ticker?.t);
+          if (!Number.isFinite(value) || value <= 0 ||
+              !Number.isFinite(updatedAt) || updatedAt <= 0) continue;
+          if (pair.endsWith("_EUR")) {
+            p[coin] = value;
+            timestamps[coin] = updatedAt;
+            break;
+          }
+          if (pair.endsWith("_USDT") && fxUsable) {
+            p[coin] = value / eurUsdt;
+            timestamps[coin] = Math.min(updatedAt, fxUpdatedAt);
+            break;
+          }
+        }
       }
       const now = Date.now();
       const validFresh = COIN_SYMBOLS.filter(c => Number.isFinite(p[c]) &&
         Number.isFinite(timestamps[c]) && timestamps[c] <= now &&
         now - timestamps[c] <= MAX_PRICE_AGE_MS);
-      if (validFresh.length < 3) throw new Error("Insufficient fresh, timestamped market quotes");
+      if (validFresh.length < 3) throw new Error("Insufficient fresh Crypto.com EUR spot quotes");
       return { prices: p, timestamps };
     } finally {
       clearTimeout(timeout);
     }
   }
-
   function priceIsFresh(coin, now = Date.now()) {
     const timestamp = priceTimestamps[coin];
     return !!coin && Number.isFinite(prices?.[coin]) && prices[coin] > 0 &&
@@ -297,6 +330,7 @@
     if (!prices) return;
     const now = Date.now();
     const value = total();
+    if (!Number.isFinite(value)) return;
     if (!Array.isArray(state.portfolioHistory)) state.portfolioHistory = [];
     const last = state.portfolioHistory[state.portfolioHistory.length - 1];
     if (!last || now - last.time >= 60000) {
@@ -338,15 +372,17 @@
     const value = total();
     const profit = value - START;
     renderPerformanceMonitor();
-    window.AgentLearning?.observe({
+    if (Number.isFinite(value)) window.AgentLearning?.observe({
       time: pricesUpdatedAt || Date.now(), equity: value, cash: state.cash,
       exposure: exposure(), orderCount: state.history.length,
       fees: state.history.reduce((sum, order) => sum + order.fee, 0),
       prices
     });
 
-    say("equity", eur(value));
-    say("pnl", `${profit >= 0 ? "+" : ""}${eur(profit)} (${(profit / START * 100).toFixed(2)}%)`);
+    say("equity", Number.isFinite(value) ? eur(value) : "Incomplete · missing market quote");
+    say("pnl", Number.isFinite(value)
+      ? `${profit >= 0 ? "+" : ""}${eur(profit)} (${(profit / START * 100).toFixed(2)}%)`
+      : "P/L unavailable until every held asset has a quote");
     say("cash", eur(state.cash));
     say("positions", Object.values(state.holdings).filter(q => q > 0).length);
     say("savings", eur(state.savings || 0));
@@ -357,20 +393,26 @@
     say("orders", state.history.length);
     say("day", "Active · until manually stopped");
     say("lastRun", new Date().toLocaleTimeString());
-    say("marketStatus", loadWarning || saveWarning || "Public reference prices updated. Paper mode only.");
+    say("marketStatus", loadWarning || saveWarning || "Crypto.com Exchange spot prices updated · EUR · paper only.");
     say("orderMessage", state.paused
       ? "Simulated buying paused: daily loss limit reached."
       : `Exposure ${eur(exposure())} / ${eur(MAX_EXPOSURE)}. Paper only.`);
 
     const names = Object.fromEntries(COIN_SYMBOLS.map(c => [c, COINS[c].name]));
-    if ($("assets")) $("assets").innerHTML = Object.entries(prices).map(([c, p]) =>
-      `<div class="asset"><div><strong>${names[c]}</strong><div class="sub">${c}</div></div><strong>${eur(p)}</strong></div>`
-    ).join("");
+    if ($("assets")) $("assets").innerHTML = COIN_SYMBOLS.map(c => {
+      const p = prices[c];
+      const available = Number.isFinite(p) && p > 0;
+      const source = available ? "Crypto.com spot" : "No supported Crypto.com spot pair";
+      return `<div class="asset"><div><strong>${names[c]}</strong><div class="sub">${c} · ${source}</div></div><strong>${available ? eur(p) : "N/A"}</strong></div>`;
+    }).join("");
 
     if ($("holdings")) {
       const rows = Object.entries(state.holdings).filter(([, q]) => q > 0);
       $("holdings").innerHTML = rows.length
-        ? rows.map(([c, q]) => `<div class="asset"><strong>${c}</strong><span>${q.toFixed(8)} · ${eur(q * prices[c])}</span></div>`).join("")
+        ? rows.map(([c, q]) => {
+            const marked = Number.isFinite(prices[c]) && prices[c] > 0;
+            return `<div class="asset"><strong>${c}</strong><span>${q.toFixed(8)} · ${marked ? eur(q * prices[c]) : "Market valuation unavailable"}</span></div>`;
+          }).join("")
         : '<div class="empty">No open positions.</div>';
     }
 
