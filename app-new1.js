@@ -770,10 +770,6 @@
     $("exportBtn")?.addEventListener("click", exportData);
     $("resetBtn")?.addEventListener("click", reset);
 
-    say("cloudStatus", "Cloud deployment not verified.");
-    say("cloudPortfolio", "Local paper portfolio only. No exchange connection.");
-    say("cloudDailyReport", "Cloud scheduler status not verified.");
-
     refresh();
     // Frequent public reference-price polling for faster paper-only evaluation.
     // Slow down while hidden to reduce unnecessary requests and respect browser throttling.
