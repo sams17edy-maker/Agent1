@@ -8,10 +8,19 @@
   function read() {
     try {
       const x = JSON.parse(localStorage.getItem(KEY));
-      if (!x || !Array.isArray(x.samples) || !Number.isFinite(x.startedAt) ||
+      const now = Date.now();
+      if (!x || !Array.isArray(x.samples) || x.samples.length < 1 ||
+          !Number.isFinite(x.startedAt) || x.startedAt <= 0 || x.startedAt > now ||
           !["running", "complete"].includes(x.status)) return null;
-      if (!x.samples.every(s => s && Number.isFinite(s.elapsedMs) &&
-          s.elapsedMs >= 0 && s.elapsedMs <= DURATION)) return null;
+      if (!x.samples.every((s, i, a) =>
+        s && typeof s === "object" &&
+        Number.isFinite(s.elapsedMs) && s.elapsedMs >= 0 && s.elapsedMs <= DURATION &&
+        typeof s.time === "string" && Number.isFinite(Date.parse(s.time)) &&
+        (i === 0 || s.elapsedMs >= a[i - 1].elapsedMs))) return null;
+      if (x.status === "complete" &&
+          (!Number.isFinite(Date.parse(x.completedAt)) ||
+           Date.parse(x.completedAt) < x.startedAt ||
+           x.samples[x.samples.length - 1].elapsedMs !== DURATION)) return null;
       return x;
     } catch (_) { return null; }
   }
