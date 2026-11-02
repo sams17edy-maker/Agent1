@@ -602,7 +602,7 @@
     choices.sort((x, y) => y.score - x.score);
     const pick = choices[0];
     const budget = pick.side === "sell"
-      ? Math.min(MAX_ORDER, Math.max(0, (state.holdings[pick.coin] || 0) * prices[pick.coin]))
+      ? Math.min(MAX_ORDER, Math.max(0, Math.floor((state.holdings[pick.coin] || 0) * prices[pick.coin] * 100) / 100))
       : Math.min(MAX_ORDER, Math.max(0, state.cash / (1 + FEE)),
           Math.max(0, MAX_EXPOSURE - exposure()));
     const confidence = Math.max(0, Math.min(1, (pick.score - hurdle) / 0.02));
