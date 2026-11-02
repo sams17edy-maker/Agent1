@@ -226,7 +226,7 @@
     say("day", `${elapsedMinutes} / 30 min`);
     say("lastRun", new Date().toLocaleTimeString());
     say("marketStatus", experimentComplete
-      ? "30-minute paper experiment complete. Autonomous paper trading stopped; no real orders were placed."
+      ? "30-minute reporting window complete. Paper AutoTrade remains ON while this app is open, until manually switched OFF. No real orders are placed."
       : "Public reference prices updated. Paper mode only.");
     say("orderMessage", state.paused
       ? "Simulated buying paused: daily loss limit reached."
