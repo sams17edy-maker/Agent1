@@ -212,6 +212,12 @@
     });
     const elapsedMinutes = Math.min(30,
       Math.floor((Date.now() - state.started) / 60000));
+    const experimentComplete = Date.now() - state.started >= 30 * 60 * 1000;
+    if (experimentComplete && state.autoTrading) {
+      state.autoTrading = false;
+      state.autoLastAction = "Stopped: 30-minute paper experiment complete.";
+      save();
+    }
 
     say("equity", eur(value));
     say("pnl", `${profit >= 0 ? "+" : ""}${eur(profit)} (${(profit / START * 100).toFixed(2)}%)`);
@@ -223,9 +229,10 @@
     say("autoDecision", state.autoLastAction || "No autonomous decision yet.");
     say("orders", state.history.length);
     say("day", `${elapsedMinutes} / 30 min`);
-    if (elapsedMinutes >= 30) say("marketStatus", "30-minute paper experiment complete. No real orders were placed.");
     say("lastRun", new Date().toLocaleTimeString());
-    say("marketStatus", "Public reference prices updated. Paper mode only.");
+    say("marketStatus", experimentComplete
+      ? "30-minute paper experiment complete. Autonomous paper trading stopped; no real orders were placed."
+      : "Public reference prices updated. Paper mode only.");
     say("orderMessage", state.paused
       ? "Simulated buying paused: daily loss limit reached."
       : `Exposure ${eur(exposure())} / ${eur(MAX_EXPOSURE)}. Paper only.`);
@@ -370,6 +377,13 @@
   function runAutonomousDecision() {
     const decisionStarted = performance.now();
     if (!state.autoTrading) return;
+    if (Date.now() - state.started >= 30 * 60 * 1000) {
+      state.autoTrading = false;
+      state.autoLastAction = "Stopped: 30-minute paper experiment complete.";
+      save();
+      render();
+      return;
+    }
     if (!pricesUsable(prices, pricesUpdatedAt)) {
       state.autoLastAction = "Paused: public prices missing, invalid, or stale.";
       save(); return;
