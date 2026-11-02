@@ -96,11 +96,47 @@
     const winner = rows.reduce((best, row) => row[1].value > best[1].value ? row : best);
     out.textContent = ["Replay: " + quotes.length + " saved BTC/EUR observations", ...rows.map(([name, r]) => name + ": " + eur(r.value) + " | net change " + eur(r.value - 500) + " | fees " + eur(r.fees) + " | actions " + r.trades), "Highest in this sample: " + winner[0] + ".", "In-sample educational replay only; not a forecast or proof of a useful strategy.", "Isolated simulation: main wallet unchanged; fixed safeguards unchanged."].join("\n");
   }
+  // Heuristic risk/price estimator. Descriptive paper analytics, not a validated forecast.
+  function estimateSignals() {
+    const quotes = load().quotes;
+    const out = $("riskSignals");
+    if (!out) return;
+    const hurdle = LIMITS.feeRate * 2 + 0.002;
+    if (quotes.length < 4) {
+      out.textContent = "Collect at least 4 time-separated quotes per asset. Estimates remain unavailable until then.";
+      return;
+    }
+    const lines = [
+      "Directional estimate for the next observation (based on the last 3 returns):",
+      "Fee hurdle: " + (hurdle * 100).toFixed(2) + "% estimated move to cover illustrative entry/exit fees plus buffer.",
+      ""
+    ];
+    for (const coin of ["BTC", "ETH", "SOL"]) {
+      const values = quotes.slice(-4).map(q => q[coin]).filter(v => Number.isFinite(v) && v > 0);
+      if (values.length < 4) { lines.push(coin + ": insufficient valid quotes."); continue; }
+      const returns = values.slice(1).map((v, i) => v / values[i] - 1);
+      const estimate = returns.reduce((sum, r) => sum + r, 0) / returns.length;
+      const volatility = Math.sqrt(returns.reduce((sum, r) => sum + (r - estimate) ** 2, 0) / returns.length);
+      const risk = Math.min(100, Math.round(volatility / 0.02 * 100));
+      const riskLabel = risk >= 70 ? "HIGH" : risk >= 35 ? "MEDIUM" : "LOW";
+      let signal = "WAIT — estimated move does not clear the fee hurdle";
+      if (estimate <= -hurdle) signal = "BUY WATCH — model estimates a possible lower entry; wait for confirmation";
+      else if (estimate >= hurdle) signal = "SELL WATCH — model estimates a possible higher exit";
+      lines.push(coin + " | estimate " + (estimate >= 0 ? "+" : "") + (estimate * 100).toFixed(3) +
+        "% | volatility risk " + riskLabel + " (" + risk + "/100) | " + signal);
+    }
+    lines.push("Simple momentum extrapolation from 3 recent intervals; not a calibrated probability and can be wrong.");
+    lines.push("Fee hurdle excludes spread, slippage, taxes and price gaps. SELL WATCH does not prove a position is profitable.");
+    lines.push("Advisory only: no orders are created; wallet and fixed safeguards remain unchanged.");
+    out.textContent = lines.join("\n");
+  }
+
   function render() {
     const out = insights();
     const status = $("learningStatus");
     const details = $("learningDetails");
     compareStrategies();
+    estimateSignals();
     if (!status || !details) return;
     status.textContent = out.message;
     if (!out.latest) {
@@ -118,6 +154,6 @@
     ].join("\n");
   }
 
-  window.AgentLearning = Object.freeze({ observe, render, compareStrategies });
+  window.AgentLearning = Object.freeze({ observe, render, compareStrategies, estimateSignals });
   document.addEventListener("DOMContentLoaded", render);
 })();
