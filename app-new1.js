@@ -564,19 +564,6 @@
     ].join("\n"));
     say("reportStatus", "Generated");
   }
-
-  function scenario() {
-    const kind = $("scenario")?.value || "flat";
-    const steps = Number($("steps")?.value || 30);
-    const drift = { flat: 0, volatile: 0, down: -0.006, up: 0.004 }[kind];
-    const volatility = kind === "volatile" ? 0.045 :
-      kind === "flat" ? 0.008 : 0.018;
-    let value = START;
-    for (let i = 1; i <= steps; i++) {
-      value *= 1 + drift +
-        Math.sin(i * 1.71) * volatility +
-        Math.cos(i * 0.63) * volatility * 0.35;
-    }
     return `Fictional ${kind} scenario (${steps} steps): ${eur(value)}. Change: ${eur(value - START)}. Not historical data or a prediction; your portfolio was not changed.`;
   }
 
@@ -878,11 +865,7 @@
       if (requested) refresh();
     });
     $("reportBtn")?.addEventListener("click", report);
-    $("scenarioBtn")?.addEventListener("click", () => {
-      say("scenarioResult", scenario() + "\n\n" + testDailyLossGuard());
-    });
-    
-    $("exportBtn")?.addEventListener("click", exportData);
+$("exportBtn")?.addEventListener("click", exportData);
     $("importBtn")?.addEventListener("click", () => $("importFile")?.click());
     $("importFile")?.addEventListener("change", e => {
       const file = e.target.files?.[0];
