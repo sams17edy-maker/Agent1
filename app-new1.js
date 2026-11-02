@@ -10,7 +10,8 @@
   const MAX_ORDER = 50;
   const MAX_EXPOSURE = 250;
   const DAILY_LOSS_LIMIT = 10;
-  const MAX_PRICE_AGE_MS = 2 * 60 * 60 * 1000;
+  const MAX_PRICE_AGE_MS = 2 * 60 * 1000;
+  const MAX_AUTO_QUOTE_AGE_MS = 2 * 60 * 1000;
   const KEY = "agent1-paper-v10";
   const $ = id => document.getElementById(id);
   const eur = n => new Intl.NumberFormat("en-IE", {
@@ -30,6 +31,16 @@
     const latestAllowedTime = now + 2 * 60 * 60 * 1000;
     if (!s || typeof s !== "object" || Array.isArray(s) || !Number.isFinite(now)) return false;
     if (!Number.isFinite(s.cash) || s.cash < 0) return false;
+    if (s.savings !== undefined && (!Number.isFinite(s.savings) || s.savings < 0)) return false;
+    if (s.basisInitialized !== undefined && typeof s.basisInitialized !== "boolean") return false;
+    if (s.autoTrading !== undefined && typeof s.autoTrading !== "boolean") return false;
+    if (s.autoLastAction !== undefined && typeof s.autoLastAction !== "string") return false;
+    if (s.autoLastQuoteAt !== undefined &&
+        (!Number.isFinite(s.autoLastQuoteAt) || s.autoLastQuoteAt < 0 || s.autoLastQuoteAt > latestAllowedTime)) return false;
+    if (s.costBasis !== undefined &&
+        (!s.costBasis || typeof s.costBasis !== "object" || Array.isArray(s.costBasis) ||
+         Object.keys(s.costBasis).some(c => !supportedCoins.includes(c)) ||
+         !supportedCoins.every(c => Number.isFinite(s.costBasis[c] ?? 0) && (s.costBasis[c] ?? 0) >= 0))) return false;
     if (!s.holdings || typeof s.holdings !== "object" || Array.isArray(s.holdings)) return false;
     const supportedCoins = COIN_SYMBOLS;
     if (Object.keys(s.holdings).some(c => !supportedCoins.includes(c))) return false;
@@ -49,7 +60,10 @@
       ["BUY", "SELL"].includes(t.side) && COIN_SYMBOLS.includes(t.coin) &&
       Number.isFinite(t.amount) && t.amount > 0 && t.amount <= MAX_ORDER &&
       Number.isFinite(t.fee) && t.fee >= 0 &&
-      t.fee <= t.amount * FEE + 1e-9)) return false;
+      t.fee <= t.amount * FEE + 1e-9 &&
+      (t.realizedNet === undefined || Number.isFinite(t.realizedNet)) &&
+      (t.savingsTransfer === undefined || (Number.isFinite(t.savingsTransfer) && t.savingsTransfer >= 0)) &&
+      (t.soldBasis === undefined || (Number.isFinite(t.soldBasis) && t.soldBasis >= 0)))) return false;
     // Transactions are stored newest-first; reject timestamps out of that order.
     if (s.history.some((t, i, a) => i > 0 && t.time > a[i - 1].time)) return false;
     // Portfolio snapshots are stored oldest-first.
@@ -80,6 +94,7 @@
   }
 
   let loadWarning = "";
+  let saveWarning = "";
   function preserveUnreadableSave(raw, reason) {
     try {
       if (raw !== null) localStorage.setItem(KEY + "-recovery", JSON.stringify({ savedAt: Date.now(), reason, raw }));
@@ -110,6 +125,9 @@
   let state = load();
   let prices = null;
   let pricesUpdatedAt = null;
+  let priceTimestamps = {};
+  let consecutivePriceFailures = 0;
+  let nextPriceRetryAt = 0;
   let busy = false;
   const speedStats = { fetchMs: null, lastQuoteAt: null, decisionMs: null, lastCycleMs: null, lastCycleStarted: null, lastError: null };
   function renderSpeedMonitor() {
@@ -170,9 +188,22 @@
     ].join("");
   }
 
-  function save() {
-    try { localStorage.setItem(KEY, JSON.stringify(state)); }
-    catch (e) { console.warn("Local save failed", e); }
+  function save(nextState = state) {
+    try {
+      localStorage.setItem(KEY, JSON.stringify(nextState));
+      saveWarning = "";
+      return true;
+    } catch (e) {
+      saveWarning = "⚠️ Wallet save failed. Changes may not survive closing this page; free browser storage before continuing.";
+      console.error("Local save failed", e);
+      return false;
+    }
+  }
+
+  function commitState(nextState) {
+    if (!save(nextState)) return false;
+    state = nextState;
+    return true;
   }
 
   function say(id, value) {
@@ -185,17 +216,44 @@
   }
 
   async function getPrices() {
-    const url = "https://api.coingecko.com/api/v3/simple/price?ids=" + COIN_SYMBOLS.map(c => COINS[c].id).join(",") + "&vs_currencies=eur";
-    const response = await fetch(url);
-    if (!response.ok) throw new Error("Price service unavailable");
-    const d = await response.json();
-    const p = Object.fromEntries(COIN_SYMBOLS.map(c => [c, Number(d[COINS[c].id]?.eur)]));
-    if (Object.values(p).filter(x => Number.isFinite(x) && x > 0).length < 3) throw new Error("Insufficient valid market quotes");
-    return p;
+    const url = "https://api.coingecko.com/api/v3/simple/price?ids=" +
+      COIN_SYMBOLS.map(c => COINS[c].id).join(",") +
+      "&vs_currencies=eur&include_last_updated_at=true";
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 12000);
+    try {
+      const response = await fetch(url, { signal: controller.signal });
+      if (!response.ok) throw new Error(response.status === 429 ? "Price service rate limited" : "Price service unavailable");
+      const data = await response.json();
+      const p = {}, timestamps = {};
+      for (const coin of COIN_SYMBOLS) {
+        const item = data[COINS[coin].id];
+        const value = Number(item?.eur);
+        const updatedAt = Number(item?.last_updated_at) * 1000;
+        if (Number.isFinite(value) && value > 0) p[coin] = value;
+        if (Number.isFinite(updatedAt) && updatedAt > 0) timestamps[coin] = updatedAt;
+      }
+      const now = Date.now();
+      const validFresh = COIN_SYMBOLS.filter(c => Number.isFinite(p[c]) &&
+        Number.isFinite(timestamps[c]) && timestamps[c] <= now &&
+        now - timestamps[c] <= MAX_PRICE_AGE_MS);
+      if (validFresh.length < 3) throw new Error("Insufficient fresh, timestamped market quotes");
+      return { prices: p, timestamps };
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  function priceIsFresh(coin, now = Date.now()) {
+    const timestamp = priceTimestamps[coin];
+    return !!coin && Number.isFinite(prices?.[coin]) && prices[coin] > 0 &&
+      Number.isFinite(timestamp) && timestamp <= now && now - timestamp <= MAX_PRICE_AGE_MS;
   }
 
   function pricesUsable(quote, updatedAt, now = Date.now()) {
-    return !!quote && COIN_SYMBOLS.some(c => Number.isFinite(quote[c]) && quote[c] > 0) && Number.isFinite(updatedAt) && updatedAt <= now && now - updatedAt <= MAX_PRICE_AGE_MS;
+    if (!quote || !Number.isFinite(updatedAt) || updatedAt > now ||
+        now - updatedAt > MAX_PRICE_AGE_MS) return false;
+    return COIN_SYMBOLS.filter(c => priceIsFresh(c, now)).length >= 3;
   }
 
   function exposure() {
@@ -278,7 +336,7 @@
     const profit = value - START;
     renderPerformanceMonitor();
     window.AgentLearning?.observe({
-      time: Date.now(), equity: value, cash: state.cash,
+      time: pricesUpdatedAt || Date.now(), equity: value, cash: state.cash,
       exposure: exposure(), orderCount: state.history.length,
       fees: state.history.reduce((sum, order) => sum + order.fee, 0),
       prices
@@ -296,7 +354,7 @@
     say("orders", state.history.length);
     say("day", "Active · until manually stopped");
     say("lastRun", new Date().toLocaleTimeString());
-    say("marketStatus", loadWarning || "Public reference prices updated. Paper mode only.");
+    say("marketStatus", loadWarning || saveWarning || "Public reference prices updated. Paper mode only.");
     say("orderMessage", state.paused
       ? "Simulated buying paused: daily loss limit reached."
       : `Exposure ${eur(exposure())} / ${eur(MAX_EXPOSURE)}. Paper only.`);
@@ -326,6 +384,11 @@
   }
   async function refresh() {
     if (busy) return;
+    if (Date.now() < nextPriceRetryAt) {
+      const seconds = Math.ceil((nextPriceRetryAt - Date.now()) / 1000);
+      say("marketStatus", "Price service cooling down after an error. Retry in " + seconds + " seconds.");
+      return;
+    }
     const cycleStarted=performance.now();
     if(speedStats.lastCycleStarted!=null) speedStats.lastCycleMs=cycleStarted-speedStats.lastCycleStarted;
     speedStats.lastCycleStarted=cycleStarted;
@@ -336,7 +399,9 @@
       const fresh = await getPrices();
       speedStats.fetchMs=performance.now()-fetchStarted;
       speedStats.lastQuoteAt=Date.now(); speedStats.lastError=null;
-      prices = fresh; pricesUpdatedAt = Date.now();
+      consecutivePriceFailures = 0; nextPriceRetryAt = 0;
+      prices = fresh.prices; priceTimestamps = fresh.timestamps;
+      pricesUpdatedAt = Math.max(...Object.values(priceTimestamps));
       if (!state.basisInitialized) {
         state.costBasis = { ...initial().costBasis, ...(state.costBasis || {}) };
         for (const c of COIN_SYMBOLS) state.costBasis[c] = (state.holdings[c] || 0) * prices[c];
@@ -347,8 +412,11 @@
       speedStats.decisionMs=performance.now()-decisionStarted;
       renderSpeedMonitor(); save();
     } catch (e) {
+      consecutivePriceFailures += 1;
+      const delay = Math.min(60000, 15000 * (2 ** Math.min(2, consecutivePriceFailures - 1)));
+      nextPriceRetryAt = Date.now() + delay;
       speedStats.lastError="Quote request failed"; renderSpeedMonitor();
-      say("marketStatus", "Public prices temporarily unavailable.");
+      say("marketStatus", "Public prices unavailable. Retrying in " + Math.ceil(delay / 1000) + " seconds.");
       console.warn(e);
     } finally {
       busy = false;
@@ -428,6 +496,10 @@
     const coin = $("symbol")?.value;
     const side = $("side")?.value;
     const amount = Number($("amount")?.value);
+    if (!priceIsFresh(coin)) {
+      say("orderMessage", "Selected asset quote is stale or missing. Refresh prices before ordering.");
+      return;
+    }
     checkDailyLimit();
 
     const result = processPaperOrder({
@@ -445,8 +517,11 @@
       return;
     }
 
-    state = { ...state, ...result.next };
-    save();
+    const nextState = { ...state, ...result.next };
+    if (!commitState(nextState)) {
+      say("orderMessage", "Order cancelled because the wallet could not be saved. " + saveWarning);
+      return;
+    }
     render();
     say("orderMessage",
       `Simulated ${side} completed. Fee: ${eur(result.fee)}. No real order was sent.`);
@@ -475,7 +550,8 @@
     try { journal = JSON.parse(localStorage.getItem("agent1-learning-journal-v1") || "{}"); }
     catch { journal = {}; }
     const quotes = Array.isArray(journal.quotes) ? journal.quotes : [];
-    const valid = quotes.filter(q => q && Number.isFinite(q.time) && q.time <= Date.now() &&
+    const valid = quotes.filter(q => q && Number.isFinite(q.time) &&
+      q.time <= Date.now() && Date.now() - q.time <= MAX_AUTO_QUOTE_AGE_MS &&
       COIN_SYMBOLS.some(c => Number.isFinite(Number(q[c])) && Number(q[c]) > 0));
     const previous = valid.length ? valid[valid.length - 1] : null;
     const prior = valid.length > 1 ? valid[valid.length - 2] : null;
@@ -497,7 +573,7 @@
       const held = state.holdings[coin] || 0;
       const change = Number.isFinite(oldPrice) && oldPrice > 0 ? nowPrice / oldPrice - 1 : 0;
       const marketPrice = prices[coin];
-      if (!Number.isFinite(marketPrice) || marketPrice <= 0) continue;
+      if (!priceIsFresh(coin) || !Number.isFinite(marketPrice) || marketPrice <= 0) continue;
 
       if (prior && !state.paused && held === 0 && change <= -hurdle) {
         choices.push({ side: "buy", coin, score: -change, reason: "fresh pullback exceeds fee-aware hurdle" });
@@ -522,23 +598,30 @@
 
     choices.sort((x, y) => y.score - x.score);
     const pick = choices[0];
-    const budget = Math.min(MAX_ORDER, Math.max(0, state.cash / (1 + FEE)),
-      Math.max(0, MAX_EXPOSURE - exposure()));
+    const budget = pick.side === "sell"
+      ? Math.min(MAX_ORDER, Math.max(0, (state.holdings[pick.coin] || 0) * prices[pick.coin]))
+      : Math.min(MAX_ORDER, Math.max(0, state.cash / (1 + FEE)),
+          Math.max(0, MAX_EXPOSURE - exposure()));
     const confidence = Math.max(0, Math.min(1, (pick.score - hurdle) / 0.02));
-    const amount = Math.min(budget, Math.max(1, Math.round(1 + confidence * (MAX_ORDER - 1))));
-    if (amount < 1) {
+    const targetAmount = Math.max(0.01, Math.round((1 + confidence * (MAX_ORDER - 1)) * 100) / 100);
+    const amount = Math.min(budget, targetAmount);
+    if (amount < 0.01) {
       state.autoLastAction = "Fast check (" + latency + " ms): blocked by available paper funds/exposure.";
       save(); return;
     }
     const result = processPaperOrder({ wallet: state, prices, side: pick.side,
       coin: pick.coin, amount, paused: state.paused });
     if (result.ok) {
-      state = { ...state, ...result.next };
-      state.autoLastAction = "Fast auto paper " + pick.side.toUpperCase() + " " + pick.coin +
+      const nextState = { ...state, ...result.next };
+      nextState.autoLastAction = "Fast auto paper " + pick.side.toUpperCase() + " " + pick.coin +
         " · " + eur(amount) + " · fee " + eur(result.fee) + " · decision " + latency + " ms" +
         " · " + pick.reason +
         (result.savingsTransfer ? " · savings " + eur(result.savingsTransfer) : "");
-      save(); render();
+      if (!commitState(nextState)) {
+        state.autoLastAction = "Order cancelled: wallet could not be saved. " + saveWarning;
+        return;
+      }
+      render();
     } else {
       state.autoLastAction = "Fast check (" + latency + " ms): safeguard blocked " + result.reason + ".";
       save();
@@ -818,7 +901,7 @@
         return;
       }
       if (!confirm("Import this paper portfolio and replace the current local virtual wallet? This cannot be undone here.")) return;
-      state = {
+      const nextState = {
         ...initial(),
         ...imported,
         autoTrading: false,
@@ -828,7 +911,10 @@
         history: [...imported.history],
         portfolioHistory: [...(imported.portfolioHistory || initial().portfolioHistory)]
       };
-      save();
+      if (!commitState(nextState)) {
+        say("report", "Import cancelled because the browser could not save the replacement wallet. Existing wallet remains active.");
+        return;
+      }
       render();
       say("report", "Paper portfolio imported successfully. Auto mode is OFF.");
       say("reportStatus", "Imported");
@@ -840,8 +926,11 @@
 
   function reset() {
     if (!confirm("Reset the €500 virtual paper portfolio?")) return;
-    state = initial();
-    save();
+    const nextState = initial();
+    if (!commitState(nextState)) {
+      say("report", "Reset cancelled because the browser could not save the new empty paper wallet. Existing wallet remains active.");
+      return;
+    }
     if (prices) render();
     say("report", "Portfolio reset.");
     say("reportStatus", "Not generated");
