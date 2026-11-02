@@ -76,18 +76,7 @@ footer{max-width:980px;margin:14px auto;padding:0 16px;color:var(--muted);font-s
   <div class="row"><strong>Order history</strong><span class="sub">Most recent first</span></div>
   <div id="history" class="empty">No simulated orders yet.</div>
  </section>
-
- <section class="panel wide">
-  <div class="row"><strong>Learning lab</strong><span class="pill">FICTIONAL SCENARIOS</span></div>
-  <p class="sub">Explore how different hypothetical price environments affect an uninvested €500 virtual portfolio. This is not a forecast or trading recommendation.</p>
-  <div class="formgrid">
-   <div class="field"><label for="scenario">Scenario</label><select id="scenario"><option value="flat">Mostly flat</option><option value="volatile">High volatility</option><option value="down">Declining market</option><option value="up">Rising market</option></select></div>
-   <div class="field"><label for="steps">Simulation steps</label><select id="steps"><option value="10">10 steps</option><option value="30" selected>30 steps</option><option value="60">60 steps</option></select></div>
-  </div>
-  <div class="actions"><button class="secondary" id="scenarioBtn">Run learning scenario</button></div>
-  <div id="scenarioResult" class="notice" style="margin-top:10px" aria-live="polite">No scenario run yet. Your main paper portfolio will not be changed.</div>
- </section>
- <section class="panel wide">
+<section class="panel wide">
   <div class="row"><strong>Self-improvement learning journal</strong><span class="pill">PAPER ANALYSIS</span></div>
   <p class="sub">The agent reviews observed paper results, records checkpoints and produces lessons for future experiments.</p>
   <div id="learningStatus" class="sub" aria-live="polite">Waiting for paper observations…</div>
@@ -122,7 +111,7 @@ footer{max-width:980px;margin:14px auto;padding:0 16px;color:var(--muted);font-s
  </section>
 
 </main>
-<footer>v10.4 · 20 assets · Educational paper-only simulator. On-device and cloud virtual portfolios are separate. No exchange connection or real-money execution.</footer>
-<script src="app-new1.js?v=10.4"></script>
+<footer>v10.5 · 20 assets · Educational paper-only simulator. On-device and cloud virtual portfolios are separate. No exchange connection or real-money execution.</footer>
+<script src="app-new1.js?v=10.5"></script>
 <script src="learning.js"></script>
 </body></html>
