@@ -210,9 +210,6 @@
       fees: state.history.reduce((sum, order) => sum + order.fee, 0),
       prices
     });
-    const elapsedMinutes = Math.min(30,
-      Math.floor((Date.now() - state.started) / 60000));
-    const experimentComplete = Date.now() - state.started >= 30 * 60 * 1000;
 
     say("equity", eur(value));
     say("pnl", `${profit >= 0 ? "+" : ""}${eur(profit)} (${(profit / START * 100).toFixed(2)}%)`);
@@ -223,11 +220,9 @@
     say("autoStatus", state.autoTrading ? "ON · paper-only" : "OFF · manual paper orders");
     say("autoDecision", state.autoLastAction || "No autonomous decision yet.");
     say("orders", state.history.length);
-    say("day", `${elapsedMinutes} / 30 min`);
+    say("day", "Active · until manually stopped");
     say("lastRun", new Date().toLocaleTimeString());
-    say("marketStatus", experimentComplete
-      ? "30-minute reporting window complete. Paper AutoTrade remains ON while this app is open, until manually switched OFF. No real orders are placed."
-      : "Public reference prices updated. Paper mode only.");
+    say("marketStatus", "Public reference prices updated. Paper mode only.");
     say("orderMessage", state.paused
       ? "Simulated buying paused: daily loss limit reached."
       : `Exposure ${eur(exposure())} / ${eur(MAX_EXPOSURE)}. Paper only.`);
@@ -373,7 +368,7 @@
     const decisionStarted = performance.now();
     if (!state.autoTrading) return;
     // Autonomous paper mode stays ON until the user manually switches it OFF.
-    // The 30-minute experiment is a reporting window, not an auto-trading kill switch.
+    // Paper AutoTrade stays ON until the user manually switches it OFF.
     if (!pricesUsable(prices, pricesUpdatedAt)) {
       state.autoLastAction = "Paused: public prices missing, invalid, or stale.";
       save(); return;
@@ -745,13 +740,7 @@
     $("orderBtn")?.addEventListener("click", trade);
     $("autoTrading")?.addEventListener("change", e => {
       const requested = !!e.target.checked;
-      if (requested && Date.now() - state.started >= 30 * 60 * 1000) {
-        state.started = Date.now();
-        state.autoLastQuoteAt = 0;
-        state.autoLastAction = "New 30-minute paper session started; waiting for fresh quote.";
-      } else {
-        state.autoLastAction = requested ? "Enabled; waiting for fresh quote." : "Stopped by user.";
-      }
+      state.autoLastAction = requested ? "Enabled; waiting for fresh quote." : "Stopped by user.";
       state.autoTrading = requested;
       save();
       render();
