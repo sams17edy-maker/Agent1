@@ -362,7 +362,7 @@
     const quotes = Array.isArray(journal.quotes) ? journal.quotes : [];
     if (quotes.length < 4) { state.autoLastAction = "Waiting for 4 time-separated observations."; save(); return; }
     const hurdle = FEE * 2 + 0.002, choices = [];
-    for (const coin of COIN_SYMBOLS {
+    for (const coin of COIN_SYMBOLS) {
       const v=quotes.slice(-4).map(q=>Number(q[coin]));
       if(v.length!==4 || v.some(x=>!Number.isFinite(x)||x<=0)) continue;
       const r=v.slice(1).map((x,i)=>x/v[i]-1), avg=r.reduce((s,x)=>s+x,0)/r.length, held=state.holdings[coin]||0;
@@ -424,7 +424,7 @@
     const check = (name, passed) => lines.push(`${name}: ${passed ? "PASS" : "FAIL"}`);
 
     // Exercise the real daily-loss calculation against portfolio equity.
-    const testPrices = { BTC: 10, ETH: 2, SOL: 1 };
+    const testPrices = Object.fromEntries(COIN_SYMBOLS.map((c, i) => [c, 1 + i]));
     const baseline = { day: "test-day", dayEquity: 500, paused: false };
     const lossCases = [
       { equity: 490.01, expectedPaused: false, label: "€9.99 loss" },
@@ -435,7 +435,7 @@
       const calculated = dailyLimitState(baseline, item.equity, "test-day");
       const wallet = { cash: 500, holdings: Object.fromEntries(COIN_SYMBOLS.map(c => [c, 0])), history: [] };
       const buy = processPaperOrder({ wallet, prices: testPrices, side: "buy", coin: "ETH", amount: 10, paused: calculated.paused });
-      const sellWallet = { cash: 0, holdings: { BTC: 2, ETH: 0, SOL: 0 }, history: [] };
+      const sellWallet = { cash: 0, holdings: Object.fromEntries(COIN_SYMBOLS.map(c => [c, c === "BTC" ? 2 : 0])), history: [] };
       const sell = processPaperOrder({ wallet: sellWallet, prices: testPrices, side: "sell", coin: "BTC", amount: 10, paused: calculated.paused });
       check(`Daily-loss calculation ${item.label}`,
         calculated.paused === item.expectedPaused &&
@@ -453,7 +453,7 @@
       nextDay.day === "next-day" && nextDay.dayEquity === 500 && !nextDay.paused);
 
     // Order engine must independently reject unsupported or malformed holding maps.
-    const unknownHolding = { cash: 500, holdings: { BTC: 0, ETH: 0, SOL: 0, DOGE: 1 }, history: [] };
+    const unknownHolding = { cash: 500, holdings: { ...Object.fromEntries(COIN_SYMBOLS.map(c => [c, 0])), FAKE: 1 }, history: [] };
     const unknownHoldingOrder = processPaperOrder({ wallet: unknownHolding, prices: testPrices, side: "buy", coin: "BTC", amount: 10, paused: false });
     check("Order rejects unsupported wallet holding",
       !unknownHoldingOrder.ok && unknownHoldingOrder.reason === "invalid-order");
@@ -521,18 +521,18 @@
     // Feed validation: fail closed on missing, malformed, stale, or future quotes.
     const fixedNow = 1000000;
     check("Missing price feed rejected", !pricesUsable(null, fixedNow, fixedNow));
-    check("Invalid price feed rejected", !pricesUsable({ BTC: 10, ETH: 0, SOL: 1 }, fixedNow, fixedNow));
+    check("Invalid price feed rejected", !pricesUsable({ ...testPrices, ETH: 0 }, fixedNow, fixedNow));
     check("Stale price feed (>2 hours) rejected", !pricesUsable(testPrices, fixedNow - MAX_PRICE_AGE_MS - 1, fixedNow));
     check("Fresh price feed accepted", pricesUsable(testPrices, fixedNow, fixedNow));
     check("Future-dated price feed rejected", !pricesUsable(testPrices, fixedNow + 1, fixedNow));
-    const invalidQuoteOrder = processPaperOrder({ wallet: base, prices: { BTC: 10, ETH: NaN, SOL: 1 }, side: "buy", coin: "BTC", amount: 10, paused: false });
+    const invalidQuoteOrder = processPaperOrder({ wallet: base, prices: { ...testPrices, ETH: NaN }, side: "buy", coin: "BTC", amount: 10, paused: false });
     check("Order rejected with malformed quote", !invalidQuoteOrder.ok && invalidQuoteOrder.reason === "invalid-order");
 
     // Wallet integrity: malformed balances and holdings must never create NaN or negative state.
     const badCash = { cash: NaN, holdings: Object.fromEntries(COIN_SYMBOLS.map(c => [c, 0])), history: [] };
     const badCashOrder = processPaperOrder({ wallet: badCash, prices: testPrices, side: "buy", coin: "BTC", amount: 10, paused: false });
     check("Order rejected with invalid virtual cash", !badCashOrder.ok && badCashOrder.reason === "invalid-order");
-    const negativeHolding = { cash: 500, holdings: { BTC: -1, ETH: 0, SOL: 0 }, history: [] };
+    const negativeHolding = { cash: 500, holdings: { ...Object.fromEntries(COIN_SYMBOLS.map(c => [c, 0])), BTC: -1 }, history: [] };
     const negativeHoldingOrder = processPaperOrder({ wallet: negativeHolding, prices: testPrices, side: "sell", coin: "BTC", amount: 1, paused: false });
     check("Order rejected with negative holding", !negativeHoldingOrder.ok && negativeHoldingOrder.reason === "invalid-order");
     const negativeCash = { cash: -1, holdings: Object.fromEntries(COIN_SYMBOLS.map(c => [c, 0])), history: [] };
@@ -576,7 +576,7 @@
     check("Corrupt saved history safely recovers", corruptHistoryRecovery.recovered &&
       corruptHistoryRecovery.state.history.length === 0);
     const unknownCoinRecovery = recoverSnapshot(JSON.stringify({
-      ...fixture, holdings: { BTC: 0, ETH: 0, SOL: 0, DOGE: 1000000 }
+      ...fixture, holdings: { ...Object.fromEntries(COIN_SYMBOLS.map(c => [c, 0])), FAKE: 1000000 }
     }), Date.now());
     check("Unknown saved coin safely recovers",
       unknownCoinRecovery.recovered && !("DOGE" in unknownCoinRecovery.state.holdings));
