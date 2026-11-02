@@ -414,6 +414,10 @@
   }
 
   async function trade() {
+    if (loadWarning) {
+      say("orderMessage", "Paper orders locked because saved data needs recovery. Export/contact support before continuing.");
+      return;
+    }
     if (!pricesUsable(prices, pricesUpdatedAt)) {
       say("orderMessage", "Prices missing, invalid, or stale. Refresh prices before placing a paper order.");
       return;
@@ -448,6 +452,12 @@
 
   function runAutonomousDecision() {
     const decisionStarted = performance.now();
+    if (loadWarning) {
+      state.autoTrading = false;
+      state.autoLastAction = "Paused: saved paper data needs recovery; no orders permitted.";
+      save();
+      return;
+    }
     if (!state.autoTrading) return;
     // Autonomous paper mode stays ON until the user manually switches it OFF.
     // Paper AutoTrade stays ON until the user manually switches it OFF.
