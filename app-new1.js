@@ -29,9 +29,16 @@
     if (!s || typeof s !== "object" || Array.isArray(s)) return false;
     if (!Number.isFinite(s.cash) || s.cash < 0) return false;
     if (!s.holdings || typeof s.holdings !== "object" || Array.isArray(s.holdings)) return false;
-    if (!["BTC", "ETH", "SOL"].every(c =>
+    const supportedCoins = ["BTC", "ETH", "SOL"];
+    if (Object.keys(s.holdings).some(c => !supportedCoins.includes(c))) return false;
+    if (!supportedCoins.every(c =>
       Number.isFinite(s.holdings[c] ?? 0) && (s.holdings[c] ?? 0) >= 0)) return false;
     if (!Array.isArray(s.history) || s.history.length > 10000) return false;
+    // Older saves may not contain portfolioHistory; when present, validate every point.
+    if (s.portfolioHistory !== undefined &&
+        (!Array.isArray(s.portfolioHistory) || s.portfolioHistory.length > 10000 ||
+         !s.portfolioHistory.every(p => p && Number.isFinite(p.time) && p.time > 0 &&
+           p.time <= Date.now() && Number.isFinite(p.value) && p.value >= 0))) return false;
     if (!Number.isFinite(s.started) || s.started <= 0 || s.started > Date.now()) return false;
     if (typeof s.day !== "string" || !Number.isFinite(s.dayEquity) || s.dayEquity < 0) return false;
     if (typeof s.paused !== "boolean") return false;
@@ -118,8 +125,8 @@
 
   function exposure() {
     if (!prices) return 0;
-    return Object.entries(state.holdings)
-      .reduce((sum, [coin, qty]) => sum + qty * prices[coin], 0);
+    return ["BTC", "ETH", "SOL"]
+      .reduce((sum, coin) => sum + (state.holdings[coin] || 0) * prices[coin], 0);
   }
 
   function total() { return state.cash + exposure(); }
@@ -263,8 +270,8 @@
     };
     const fee = amount * FEE;
     const quantity = amount / quote[coin];
-    const currentExposure = Object.entries(next.holdings)
-      .reduce((sum, [c, qty]) => sum + qty * quote[c], 0);
+    const currentExposure = ["BTC", "ETH", "SOL"]
+      .reduce((sum, c) => sum + (next.holdings[c] || 0) * quote[c], 0);
 
     if (side === "buy") {
       const reason = buyBlockReason({
@@ -508,6 +515,25 @@
     }), Date.now());
     check("Corrupt saved history safely recovers", corruptHistoryRecovery.recovered &&
       corruptHistoryRecovery.state.history.length === 0);
+    const unknownCoinRecovery = recoverSnapshot(JSON.stringify({
+      ...fixture, holdings: { BTC: 0, ETH: 0, SOL: 0, DOGE: 1000000 }
+    }), Date.now());
+    check("Unknown saved coin safely recovers",
+      unknownCoinRecovery.recovered && !("DOGE" in unknownCoinRecovery.state.holdings));
+    const malformedPortfolioHistory = recoverSnapshot(JSON.stringify({
+      ...fixture, portfolioHistory: [{ time: Date.now(), value: NaN }]
+    }), Date.now());
+    check("Malformed portfolio history safely recovers",
+      malformedPortfolioHistory.recovered &&
+      malformedPortfolioHistory.state.portfolioHistory.length === 1 &&
+      malformedPortfolioHistory.state.portfolioHistory[0].value === START);
+    const validPortfolioHistory = recoverSnapshot(JSON.stringify({
+      ...fixture, portfolioHistory: [{ time: Date.now() - 1000, value: 501 }]
+    }), Date.now());
+    check("Valid portfolio history is preserved",
+      !validPortfolioHistory.recovered &&
+      validPortfolioHistory.state.portfolioHistory[0].value === 501);
+
     check("Recovery tests leave main portfolio and storage untouched",
       JSON.stringify(state) === JSON.stringify(load()));
 
