@@ -644,7 +644,8 @@
     say("cloudDailyReport", "Cloud scheduler status not verified.");
 
     refresh();
-    setInterval(refresh, 60 * 60 * 1000);
+    // Five-minute public quote cadence supports spaced paper observations; no exchange access.
+    setInterval(refresh, 5 * 60 * 1000);
   }
 
   if (document.readyState === "loading") {
