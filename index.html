@@ -86,6 +86,13 @@ footer{max-width:980px;margin:14px auto;padding:0 16px;color:var(--muted);font-s
   <div id="scenarioResult" class="notice" style="margin-top:10px" aria-live="polite">No scenario run yet. Your main paper portfolio will not be changed.</div>
  </section>
  <section class="panel wide">
+  <div class="row"><strong>Self-improvement learning journal</strong><span class="pill">PAPER ANALYSIS</span></div>
+  <p class="sub">The agent reviews observed paper results, records checkpoints and produces lessons for future experiments.</p>
+  <div id="learningStatus" class="sub" aria-live="polite">Waiting for paper observations…</div>
+  <pre id="learningDetails" class="notice" style="white-space:pre-wrap;margin-top:10px">Learning notes will appear after the first observation.</pre>
+  <p class="sub">Learning is observational only. Strategy settings and all safety limits remain fixed; the journal cannot place orders or enable live trading.</p>
+ </section>
+ <section class="panel wide">
   <div class="row"><strong>Risk explainer</strong><span class="pill">Educational</span></div>
   <div class="grid" style="margin-top:10px">
    <div class="stat"><span class="label">Position cap</span><strong>€50</strong><div class="sub">Limits one simulated order</div></div>
@@ -115,5 +122,6 @@ footer{max-width:980px;margin:14px auto;padding:0 16px;color:var(--muted);font-s
 </main>
 <footer>v10.2 · Educational paper-only simulator. On-device and cloud virtual portfolios are separate. No exchange connection or real-money execution.</footer>
 <script src="app-new1.js"></script>
+<script src="learning.js"></script>
 <script src="accelerated.js"></script>
 </body></html>
