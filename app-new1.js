@@ -263,7 +263,7 @@
       { loss: 10.00, paused: true, expectedBuy: false },
       { loss: 12.00, paused: true, expectedBuy: false }
     ];
-    const testPrices = { BTC: 10000, ETH: 2000, SOL: 100 };
+    const testPrices = { BTC: 10, ETH: 2, SOL: 1 };
     const results = cases.map(({ loss, paused, expectedBuy }) => {
       const wallet = {
         cash: 500, holdings: { BTC: 1, ETH: 0, SOL: 0 }, history: []
