@@ -10,17 +10,17 @@
   function load() {
     try {
       const value = JSON.parse(localStorage.getItem(KEY) || '{"sessions":[],"reviews":0}');
-      if (!value || !Array.isArray(value.sessions) || !Number.isFinite(value.reviews)) throw new Error("invalid");
+      if (!value || !Array.isArray(value.sessions) || !Array.isArray(value.quotes) || !Number.isFinite(value.reviews)) throw new Error("invalid");
       return value;
     } catch {
-      return { sessions: [], reviews: 0 };
+      return { sessions: [], quotes: [], reviews: 0 };
     }
   }
 
   function observe(data) {
     if (!data || !Number.isFinite(data.equity) || !Number.isFinite(data.cash) ||
         !Number.isFinite(data.exposure) || !Number.isFinite(data.orderCount) ||
-        !Number.isFinite(data.fees) || !Number.isFinite(data.time)) return;
+        !Number.isFinite(data.fees) || !Number.isFinite(data.time) || !data.prices || !["BTC", "ETH", "SOL"].every(c => Number.isFinite(data.prices[c]) && data.prices[c] > 0)) return;
     const journal = load();
     const last = journal.sessions[journal.sessions.length - 1];
     // One checkpoint per minute; update the current minute instead of creating duplicates.
@@ -34,6 +34,11 @@
       journal.sessions.push(point);
     }
     journal.sessions = journal.sessions.slice(-1440);
+    const lastQuote = journal.quotes[journal.quotes.length - 1];
+    if (!lastQuote || data.time - lastQuote.time >= 5 * 60 * 1000) {
+      journal.quotes.push({ time: data.time, BTC: data.prices.BTC, ETH: data.prices.ETH, SOL: data.prices.SOL });
+      journal.quotes = journal.quotes.slice(-500);
+    }
     journal.reviews += 1;
     try { localStorage.setItem(KEY, JSON.stringify(journal)); } catch (e) {
       console.warn("Learning journal could not be saved", e);
@@ -64,10 +69,37 @@
     };
   }
 
+  function compareStrategies() {
+    const quotes = load().quotes;
+    const out = $("strategyDetails");
+    if (!out) return;
+    if (quotes.length < 4) { out.textContent = "Collect at least 4 time-separated public price observations. No historical data is invented."; return; }
+    const simulate = kind => {
+      let cash = 500, units = 0, fees = 0, trades = 0;
+      for (let i = 0; i < quotes.length; i++) {
+        const price = quotes[i].BTC;
+        const prior = quotes.slice(Math.max(0, i - 3), i).map(q => q.BTC);
+        let action = null;
+        if (kind === "hold" && i === 0) action = "buy";
+        if (kind === "average" && prior.length === 3) {
+          const avg = prior.reduce((s, p) => s + p, 0) / 3;
+          if (price > avg && units === 0) action = "buy";
+          if (price < avg && units > 0) action = "sell";
+        }
+        if (action === "buy" && cash >= 25 * (1 + LIMITS.feeRate) && units === 0) { units = 25 / price; cash -= 25 * (1 + LIMITS.feeRate); fees += 25 * LIMITS.feeRate; trades++; }
+        else if (action === "sell" && units > 0) { const gross = units * price; const charge = gross * LIMITS.feeRate; cash += gross - charge; fees += charge; units = 0; trades++; }
+      }
+      return { value: cash + units * quotes[quotes.length - 1].BTC, fees, trades };
+    };
+    const rows = [["Cash baseline", { value: 500, fees: 0, trades: 0 }], ["€25 BTC hold", simulate("hold")], ["3-observation average rule", simulate("average")]];
+    const winner = rows.reduce((best, row) => row[1].value > best[1].value ? row : best);
+    out.textContent = ["Replay: " + quotes.length + " saved BTC/EUR observations", ...rows.map(([name, r]) => name + ": " + eur(r.value) + " | net change " + eur(r.value - 500) + " | fees " + eur(r.fees) + " | actions " + r.trades), "Highest in this sample: " + winner[0] + ".", "In-sample educational replay only; not a forecast or proof of a useful strategy.", "Isolated simulation: main wallet unchanged; fixed safeguards unchanged."].join("\n");
+  }
   function render() {
     const out = insights();
     const status = $("learningStatus");
     const details = $("learningDetails");
+    compareStrategies();
     if (!status || !details) return;
     status.textContent = out.message;
     if (!out.latest) {
@@ -85,6 +117,6 @@
     ].join("\n");
   }
 
-  window.AgentLearning = Object.freeze({ observe, render });
+  window.AgentLearning = Object.freeze({ observe, render, compareStrategies });
   document.addEventListener("DOMContentLoaded", render);
 })();
