@@ -3,6 +3,7 @@
   "use strict";
   const KEY = "agent1-learning-journal-v1";
   const START = 500;
+  const COIN_SYMBOLS = ["BTC", "ETH", "SOL", "XRP", "BNB", "ADA", "DOGE", "LINK", "AVAX", "DOT", "LTC", "BCH", "XLM", "UNI", "ATOM", "NEAR", "ETC", "APT", "ARB", "OP"];
   const LIMITS = Object.freeze({ maxOrder: 50, maxExposure: 250, dailyLoss: 10, feeRate: 0.002 });
   const $ = id => document.getElementById(id);
   const eur = n => new Intl.NumberFormat("en-IE", { style: "currency", currency: "EUR" }).format(Number(n) || 0);
@@ -21,7 +22,7 @@
   function observe(data) {
     if (!data || !Number.isFinite(data.equity) || !Number.isFinite(data.cash) ||
         !Number.isFinite(data.exposure) || !Number.isFinite(data.orderCount) ||
-        !Number.isFinite(data.fees) || !Number.isFinite(data.time) || !data.prices || !["BTC", "ETH", "SOL"].every(c => Number.isFinite(data.prices[c]) && data.prices[c] > 0)) return;
+        !Number.isFinite(data.fees) || !Number.isFinite(data.time) || !data.prices || !COIN_SYMBOLS.some(c => Number.isFinite(data.prices[c]) && data.prices[c] > 0)) return;
     const journal = load();
     const last = journal.sessions[journal.sessions.length - 1];
     // One checkpoint per minute; update the current minute instead of creating duplicates.
@@ -111,7 +112,7 @@
       "Fee hurdle: " + (hurdle * 100).toFixed(2) + "% estimated move to cover illustrative entry/exit fees plus buffer.",
       ""
     ];
-    for (const coin of ["BTC", "ETH", "SOL"]) {
+    for (const coin of COIN_SYMBOLS) {
       const values = quotes.slice(-4).map(q => q[coin]).filter(v => Number.isFinite(v) && v > 0);
       if (values.length < 4) { lines.push(coin + ": insufficient valid quotes."); continue; }
       const returns = values.slice(1).map((v, i) => v / values[i] - 1);
