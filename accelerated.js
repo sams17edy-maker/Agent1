@@ -5,8 +5,20 @@
   const DURATION = 30 * 60 * 1000;
   const $ = id => document.getElementById(id);
   const fmt = n => "€" + Number(n).toFixed(2);
-  function read() { try { const x = JSON.parse(localStorage.getItem(KEY)); return x && Array.isArray(x.samples) ? x : null; } catch (_) { return null; } }
-  function save(x) { localStorage.setItem(KEY, JSON.stringify(x)); }
+  function read() {
+    try {
+      const x = JSON.parse(localStorage.getItem(KEY));
+      if (!x || !Array.isArray(x.samples) || !Number.isFinite(x.startedAt) ||
+          !["running", "complete"].includes(x.status)) return null;
+      if (!x.samples.every(s => s && Number.isFinite(s.elapsedMs) &&
+          s.elapsedMs >= 0 && s.elapsedMs <= DURATION)) return null;
+      return x;
+    } catch (_) { return null; }
+  }
+  function save(x) {
+    try { localStorage.setItem(KEY, JSON.stringify(x)); return true; }
+    catch (_) { return false; }
+  }
   function snapshot(run) {
     return { elapsedMs: Math.min(Date.now() - run.startedAt, DURATION), time: new Date().toISOString(),
       equity: $("equity")?.textContent || "unavailable", cash: $("cash")?.textContent || "unavailable",
@@ -39,7 +51,9 @@
     const elapsed = Math.max(0, Date.now() - run.startedAt), remaining = Math.max(0, DURATION - elapsed);
     const mins = Math.floor(remaining / 60000), secs = Math.floor((remaining % 60000) / 1000);
     if (elapsed >= DURATION && run.status !== "complete") {
-      run.samples.push(snapshot(run)); run.status = "complete"; run.completedAt = new Date().toISOString(); save(run);
+      const last = run.samples[run.samples.length - 1];
+      if (!last || last.elapsedMs < DURATION) run.samples.push(snapshot(run));
+      run.status = "complete"; run.completedAt = new Date().toISOString(); save(run);
     }
     $("accStatus").textContent = run.status === "complete" ? "Complete" : "Running";
     $("accProgress").textContent = run.status === "complete" ? "Completed 30 minutes · " + run.samples.length + " snapshots recorded." : "Time remaining: " + mins + ":" + String(secs).padStart(2,"0") + " · " + run.samples.length + " snapshots recorded. Page must remain open.";
@@ -48,8 +62,14 @@
   }
   function tick() {
     const run = read(); if (!run || run.status !== "running") return;
-    const elapsed = Date.now() - run.startedAt;
-    if (elapsed >= run.samples.length * 60000 || elapsed >= DURATION) { run.samples.push(snapshot(run)); save(run); }
+    const elapsed = Math.max(0, Date.now() - run.startedAt);
+    if (elapsed < DURATION) {
+      const last = run.samples[run.samples.length - 1];
+      const lastMinute = last ? Math.floor(last.elapsedMs / 60000) : -1;
+      const currentMinute = Math.floor(elapsed / 60000);
+      // Record at most one snapshot per elapsed minute, even after background suspension.
+      if (currentMinute > lastMinute) { run.samples.push(snapshot(run)); save(run); }
+    }
     render();
   }
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", panel); else panel();
