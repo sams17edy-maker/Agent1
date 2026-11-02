@@ -26,6 +26,8 @@
   });
 
   function validSavedState(s, now = Date.now()) {
+    // Allow up to 2 hours of device-clock skew; preserve original transaction timestamps.
+    const latestAllowedTime = now + 2 * 60 * 60 * 1000;
     if (!s || typeof s !== "object" || Array.isArray(s) || !Number.isFinite(now)) return false;
     if (!Number.isFinite(s.cash) || s.cash < 0) return false;
     if (!s.holdings || typeof s.holdings !== "object" || Array.isArray(s.holdings)) return false;
@@ -38,12 +40,12 @@
     if (s.portfolioHistory !== undefined &&
         (!Array.isArray(s.portfolioHistory) || s.portfolioHistory.length > 10000 ||
          !s.portfolioHistory.every(p => p && Number.isFinite(p.time) && p.time > 0 &&
-           p.time <= now && Number.isFinite(p.value) && p.value >= 0))) return false;
-    if (!Number.isFinite(s.started) || s.started <= 0 || s.started > now) return false;
+           p.time <= latestAllowedTime && Number.isFinite(p.value) && p.value >= 0))) return false;
+    if (!Number.isFinite(s.started) || s.started <= 0 || s.started > latestAllowedTime) return false;
     if (typeof s.day !== "string" || !Number.isFinite(s.dayEquity) || s.dayEquity < 0) return false;
     if (typeof s.paused !== "boolean") return false;
     if (!s.history.every(t => t && Number.isFinite(t.time) &&
-      t.time > 0 && t.time <= now &&
+      t.time > 0 && t.time <= latestAllowedTime &&
       ["BUY", "SELL"].includes(t.side) && COIN_SYMBOLS.includes(t.coin) &&
       Number.isFinite(t.amount) && t.amount > 0 && t.amount <= MAX_ORDER &&
       Number.isFinite(t.fee) && t.fee >= 0 &&
