@@ -40,6 +40,27 @@
       Number.isFinite(t.fee) && t.fee >= 0);
   }
 
+  // Pure recovery helper: validates a supplied serialized snapshot without touching browser storage.
+  function recoverSnapshot(raw, now = Date.now()) {
+    if (raw == null) return { recovered: false, reason: "missing" };
+    let parsed;
+    try { parsed = JSON.parse(raw); }
+    catch { return { recovered: true, reason: "malformed-json", state: initial() }; }
+    if (!validSavedState(parsed) || parsed.started > now) {
+      return { recovered: true, reason: "invalid-state", state: initial() };
+    }
+    return {
+      recovered: false,
+      reason: "valid",
+      state: {
+        ...initial(),
+        ...parsed,
+        holdings: { BTC: 0, ETH: 0, SOL: 0, ...parsed.holdings },
+        history: [...parsed.history]
+      }
+    };
+  }
+
   function load() {
     try {
       const raw = localStorage.getItem(KEY);
@@ -380,6 +401,35 @@
     check("Small positive order accepted", tinyOrder.ok && Math.abs(tinyOrder.fee - 0.00002) < 1e-12);
     const zeroOrder = processPaperOrder({ wallet: tinyWallet, prices: testPrices, side: "buy", coin: "BTC", amount: 0, paused: false });
     check("Zero-value order rejected", !zeroOrder.ok && zeroOrder.reason === "invalid-order");
+
+    // Persistence/recovery tests use serialized fixtures only; they never read or write localStorage.
+    const fixture = initial();
+    const validRaw = JSON.stringify(fixture);
+    const validRecovery = recoverSnapshot(validRaw, Date.now());
+    check("Valid saved snapshot preserved", !validRecovery.recovered &&
+      validRecovery.state.cash === fixture.cash &&
+      JSON.stringify(validRecovery.state.holdings) === JSON.stringify(fixture.holdings));
+    const malformedRecovery = recoverSnapshot("{not-json", Date.now());
+    check("Malformed saved JSON safely recovers", malformedRecovery.recovered &&
+      malformedRecovery.state.cash === START &&
+      malformedRecovery.state.history.length === 0);
+    const invalidRecovery = recoverSnapshot(JSON.stringify({
+      ...fixture, cash: -4
+    }), Date.now());
+    check("Invalid saved balance safely recovers", invalidRecovery.recovered &&
+      invalidRecovery.state.cash === START);
+    const negativeQtyRecovery = recoverSnapshot(JSON.stringify({
+      ...fixture, holdings: { BTC: -1, ETH: 0, SOL: 0 }
+    }), Date.now());
+    check("Negative saved holding safely recovers", negativeQtyRecovery.recovered &&
+      negativeQtyRecovery.state.holdings.BTC === 0);
+    const corruptHistoryRecovery = recoverSnapshot(JSON.stringify({
+      ...fixture, history: [{ side: "BUY", coin: "DOGE", amount: NaN, fee: -1, time: "bad" }]
+    }), Date.now());
+    check("Corrupt saved history safely recovers", corruptHistoryRecovery.recovered &&
+      corruptHistoryRecovery.state.history.length === 0);
+    check("Recovery tests leave main portfolio and storage untouched",
+      JSON.stringify(state) === JSON.stringify(load()));
 
     const passed = lines.every(line => line.endsWith("PASS"));
     return `Paper safeguards: ${passed ? "ALL PASS" : "FAIL"}\\n` + lines.join("\\n") +
