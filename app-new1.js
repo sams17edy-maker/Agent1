@@ -699,7 +699,7 @@
     // Slow down while hidden to reduce unnecessary requests and respect browser throttling.
     setInterval(() => {
       if (document.visibilityState === "visible") refresh();
-    }, 30 * 1000);
+    }, 5 * 1000);
     document.addEventListener("visibilitychange", () => {
       if (document.visibilityState === "visible") refresh();
     });
