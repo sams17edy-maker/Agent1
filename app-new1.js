@@ -7,6 +7,7 @@
   const MAX_ORDER = 50;
   const MAX_EXPOSURE = 250;
   const DAILY_LOSS_LIMIT = 10;
+  const MAX_PRICE_AGE_MS = 2 * 60 * 60 * 1000;
   const KEY = "agent1-paper-v10";
   const $ = id => document.getElementById(id);
   const eur = n => new Intl.NumberFormat("en-IE", {
@@ -38,6 +39,7 @@
 
   let state = load();
   let prices = null;
+  let pricesUpdatedAt = null;
   let busy = false;
 
   function save() {
@@ -62,6 +64,10 @@
     if (Object.values(p).some(x => !Number.isFinite(x) || x <= 0))
       throw new Error("Invalid price data");
     return p;
+  }
+
+  function pricesUsable(quote, updatedAt, now = Date.now()) {
+    return !!quote && ["BTC", "ETH", "SOL"].every(c => Number.isFinite(quote[c]) && quote[c] > 0) && Number.isFinite(updatedAt) && updatedAt <= now && now - updatedAt <= MAX_PRICE_AGE_MS;
   }
 
   function exposure() {
@@ -131,7 +137,9 @@
     busy = true;
     say("marketStatus", "Loading public prices...");
     try {
-      prices = await getPrices();
+      const fresh = await getPrices();
+      prices = fresh;
+      pricesUpdatedAt = Date.now();
       render();
       save();
     } catch (e) {
@@ -145,6 +153,7 @@
   // Shared order engine used by the live paper ticket and isolated tests.
   function processPaperOrder({ wallet, prices: quote, side, coin, amount, paused }) {
     if (!wallet || !wallet.holdings || !quote ||
+        !["BTC", "ETH", "SOL"].every(c => Number.isFinite(quote[c]) && quote[c] > 0) ||
         !["BTC", "ETH", "SOL"].includes(coin) ||
         !["buy", "sell"].includes(side) ||
         !Number.isFinite(amount) || amount <= 0 || amount > MAX_ORDER) {
@@ -183,8 +192,8 @@
   }
 
   async function trade() {
-    if (!prices) {
-      say("orderMessage", "Refresh prices first.");
+    if (!pricesUsable(prices, pricesUpdatedAt)) {
+      say("orderMessage", "Prices missing, invalid, or stale. Refresh prices before placing a paper order.");
       return;
     }
 
@@ -313,6 +322,16 @@
     check("Portfolio accounting after buy (€499.98)", accountingBuy.ok && Math.abs(buyEquity - 499.98) < 1e-9);
     check("Portfolio accounting after round trip (€499.96)", accountingSell.ok && Math.abs(sellEquity - 499.96) < 1e-9 && accountingSell.next.holdings.BTC === 0);
     check("Accounting tests leave main portfolio unchanged", JSON.stringify(state) === JSON.stringify(load()));
+
+    // Feed validation: fail closed on missing, malformed, stale, or future quotes.
+    const fixedNow = 1000000;
+    check("Missing price feed rejected", !pricesUsable(null, fixedNow, fixedNow));
+    check("Invalid price feed rejected", !pricesUsable({ BTC: 10, ETH: 0, SOL: 1 }, fixedNow, fixedNow));
+    check("Stale price feed (>2 hours) rejected", !pricesUsable(testPrices, fixedNow - MAX_PRICE_AGE_MS - 1, fixedNow));
+    check("Fresh price feed accepted", pricesUsable(testPrices, fixedNow, fixedNow));
+    check("Future-dated price feed rejected", !pricesUsable(testPrices, fixedNow + 1, fixedNow));
+    const invalidQuoteOrder = processPaperOrder({ wallet: base, prices: { BTC: 10, ETH: NaN, SOL: 1 }, side: "buy", coin: "BTC", amount: 10, paused: false });
+    check("Order rejected with malformed quote", !invalidQuoteOrder.ok && invalidQuoteOrder.reason === "invalid-order");
 
     const passed = lines.every(line => line.endsWith("PASS"));
     return `Paper safeguards: ${passed ? "ALL PASS" : "FAIL"}\\n` + lines.join("\\n") +
