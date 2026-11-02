@@ -118,7 +118,7 @@ footer{max-width:980px;margin:14px auto;padding:0 16px;color:var(--muted);font-s
  </section>
 \n <section class="panel wide">\n  <div class="row"><strong>Daily report</strong><span class="pill" id="reportStatus">Not generated</span></div>
   <div id="report" class="sub" style="margin-top:10px">Generate a report to review virtual equity, cash, exposure and simulated orders.</div>
-  <div class="actions"><button class="secondary" id="exportBtn">Export data (JSON)</button><button class="danger" id="resetBtn">Reset paper portfolio</button></div>
+  <div class="actions"><button class="secondary" id="exportBtn">Export data (JSON)</button><button class="secondary" id="importBtn">Import paper portfolio</button><input id="importFile" type="file" accept="application/json,.json" hidden><button class="danger" id="resetBtn">Reset paper portfolio</button></div><p class="sub">Transfer a paper-only JSON export between browser and home-screen shortcut. Import replaces this local virtual portfolio.</p>
  </section>
 
 </main>
