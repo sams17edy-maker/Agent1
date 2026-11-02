@@ -201,6 +201,11 @@
 
     const value = total();
     const profit = value - START;
+    window.AgentLearning?.observe({
+      time: Date.now(), equity: value, cash: state.cash,
+      exposure: exposure(), orderCount: state.history.length,
+      fees: state.history.reduce((sum, order) => sum + order.fee, 0)
+    });
     const elapsedMinutes = Math.min(30,
       Math.floor((Date.now() - state.started) / 60000));
 
