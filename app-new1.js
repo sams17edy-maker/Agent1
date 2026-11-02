@@ -43,9 +43,11 @@
     if (typeof s.day !== "string" || !Number.isFinite(s.dayEquity) || s.dayEquity < 0) return false;
     if (typeof s.paused !== "boolean") return false;
     return s.history.every(t => t && Number.isFinite(t.time) &&
+      t.time > 0 && t.time <= Date.now() &&
       ["BUY", "SELL"].includes(t.side) && ["BTC", "ETH", "SOL"].includes(t.coin) &&
-      Number.isFinite(t.amount) && t.amount > 0 &&
-      Number.isFinite(t.fee) && t.fee >= 0);
+      Number.isFinite(t.amount) && t.amount > 0 && t.amount <= MAX_ORDER &&
+      Number.isFinite(t.fee) && t.fee >= 0 &&
+      t.fee <= t.amount * FEE + 1e-9);
   }
 
   // Pure recovery helper: validates a supplied serialized snapshot without touching browser storage.
@@ -533,6 +535,21 @@
     }), Date.now());
     check("Unknown saved coin safely recovers",
       unknownCoinRecovery.recovered && !("DOGE" in unknownCoinRecovery.state.holdings));
+    const futureHistoryRecovery = recoverSnapshot(JSON.stringify({
+      ...fixture, history: [{ time: Date.now() + 60000, side: "BUY", coin: "BTC", amount: 10, fee: 0.02 }]
+    }), Date.now());
+    check("Future-dated saved order safely recovers",
+      futureHistoryRecovery.recovered && futureHistoryRecovery.state.history.length === 0);
+    const excessiveFeeRecovery = recoverSnapshot(JSON.stringify({
+      ...fixture, history: [{ time: Date.now(), side: "BUY", coin: "BTC", amount: 10, fee: 5 }]
+    }), Date.now());
+    check("Saved order with excessive fee safely recovers",
+      excessiveFeeRecovery.recovered && excessiveFeeRecovery.state.history.length === 0);
+    const oversizedHistoryOrderRecovery = recoverSnapshot(JSON.stringify({
+      ...fixture, history: [{ time: Date.now(), side: "BUY", coin: "BTC", amount: 50.01, fee: 0.10002 }]
+    }), Date.now());
+    check("Saved order above €50 safely recovers",
+      oversizedHistoryOrderRecovery.recovered && oversizedHistoryOrderRecovery.state.history.length === 0);
     const malformedPortfolioHistory = recoverSnapshot(JSON.stringify({
       ...fixture, portfolioHistory: [{ time: Date.now(), value: NaN }]
     }), Date.now());
