@@ -410,6 +410,25 @@
     const exposureBlock = processPaperOrder({ wallet: exposed, prices: testPrices, side: "buy", coin: "ETH", amount: 10, paused: false });
     check("Exposure cap enforced", !exposureBlock.ok && exposureBlock.reason === "exposure-limit");
 
+    // Exact exposure boundary and fee-inclusive cash boundary.
+    const atCap = { cash: 500, holdings: { BTC: 24, ETH: 0, SOL: 0 }, history: [] };
+    const capOrder = processPaperOrder({ wallet: atCap, prices: testPrices, side: "buy", coin: "ETH", amount: 10, paused: false });
+    check("Order reaching exactly €250 exposure accepted",
+      capOrder.ok && Math.abs(
+        Object.entries(capOrder.next.holdings).reduce((sum, [coin, qty]) => sum + qty * testPrices[coin], 0) - 250
+      ) < 1e-9);
+    check("Successful order does not mutate source wallet",
+      atCap.cash === 500 && atCap.holdings.BTC === 24 && atCap.history.length === 0);
+
+    const exactCash = { cash: 10.02, holdings: { BTC: 0, ETH: 0, SOL: 0 }, history: [] };
+    const exactCashOrder = processPaperOrder({ wallet: exactCash, prices: testPrices, side: "buy", coin: "BTC", amount: 10, paused: false });
+    check("Cash exactly covering order plus fee accepted",
+      exactCashOrder.ok && Math.abs(exactCashOrder.next.cash) < 1e-9);
+    const shortCash = { cash: 10.019, holdings: { BTC: 0, ETH: 0, SOL: 0 }, history: [] };
+    const shortCashOrder = processPaperOrder({ wallet: shortCash, prices: testPrices, side: "buy", coin: "BTC", amount: 10, paused: false });
+    check("Cash short by €0.001 rejected",
+      !shortCashOrder.ok && shortCashOrder.reason === "insufficient-cash");
+
     // Fee calculations and balances on successful isolated orders.
     const feeWallet = { cash: 500, holdings: { BTC: 0, ETH: 0, SOL: 0 }, history: [] };
     const buy = processPaperOrder({ wallet: feeWallet, prices: testPrices, side: "buy", coin: "BTC", amount: 10, paused: false });
