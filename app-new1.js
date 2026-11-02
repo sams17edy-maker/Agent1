@@ -24,17 +24,41 @@
     paused: false
   });
 
+  function validSavedState(s) {
+    if (!s || typeof s !== "object" || Array.isArray(s)) return false;
+    if (!Number.isFinite(s.cash) || s.cash < 0) return false;
+    if (!s.holdings || typeof s.holdings !== "object" || Array.isArray(s.holdings)) return false;
+    if (!["BTC", "ETH", "SOL"].every(c =>
+      Number.isFinite(s.holdings[c] ?? 0) && (s.holdings[c] ?? 0) >= 0)) return false;
+    if (!Array.isArray(s.history) || s.history.length > 10000) return false;
+    if (!Number.isFinite(s.started) || s.started <= 0 || s.started > Date.now()) return false;
+    if (typeof s.day !== "string" || !Number.isFinite(s.dayEquity) || s.dayEquity < 0) return false;
+    if (typeof s.paused !== "boolean") return false;
+    return s.history.every(t => t && Number.isFinite(t.time) &&
+      ["BUY", "SELL"].includes(t.side) && ["BTC", "ETH", "SOL"].includes(t.coin) &&
+      Number.isFinite(t.amount) && t.amount > 0 &&
+      Number.isFinite(t.fee) && t.fee >= 0);
+  }
+
   function load() {
     try {
-      const s = JSON.parse(localStorage.getItem(KEY));
-      if (s && Number.isFinite(s.cash) && s.holdings) {
-        return { ...initial(), ...s,
-          holdings: { BTC: 0, ETH: 0, SOL: 0, ...s.holdings },
-          history: Array.isArray(s.history) ? s.history : []
-        };
+      const raw = localStorage.getItem(KEY);
+      if (raw === null) return initial();
+      const s = JSON.parse(raw);
+      if (!validSavedState(s)) {
+        console.warn("Saved paper portfolio is invalid; safely starting a fresh virtual portfolio.");
+        return initial();
       }
-    } catch (e) { console.warn(e); }
-    return initial();
+      return {
+        ...initial(),
+        ...s,
+        holdings: { BTC: 0, ETH: 0, SOL: 0, ...s.holdings },
+        history: [...s.history]
+      };
+    } catch (e) {
+      console.warn("Saved paper portfolio could not be read; safely starting fresh.", e);
+      return initial();
+    }
   }
 
   let state = load();
