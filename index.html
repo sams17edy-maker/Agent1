@@ -118,24 +118,10 @@ footer{max-width:980px;margin:14px auto;padding:0 16px;color:var(--muted);font-s
  </section>
 \n <section class="panel wide">\n  <div class="row"><strong>Daily report</strong><span class="pill" id="reportStatus">Not generated</span></div>
   <div id="report" class="sub" style="margin-top:10px">Generate a report to review virtual equity, cash, exposure and simulated orders.</div>
-  <div class="sub" id="cloudDailyReport" style="margin-top:10px">Cloud daily market digest will appear after its first scheduled run.</div>
  </section>
- <section class="panel wide">
-  <strong>System status & safety</strong>
-  <div class="sub" id="cloudStatus" style="margin:10px 0">Checking cloud service…</div>
-  <div class="notice" id="cloudPortfolio" style="margin:10px 0" aria-live="polite">Cloud paper portfolio status will appear after the first successful hourly cycle.</div>
-  <div class="grid" style="margin-top:10px">
-   <div class="stat"><span class="label">Execution mode</span><strong style="color:var(--green)">Paper only</strong></div>
-   <div class="stat"><span class="label">Exchange connection</span><strong>None</strong></div>
-   <div class="stat"><span class="label">Price refresh</span><strong>Hourly while open</strong></div>
-   <div class="stat"><span class="label">Last analysis</span><strong id="lastRun">Not run</strong></div>
-  </div>
-  <p class="notice" style="margin-top:12px">The on-device learning wallet and cloud BTC paper portfolio are separate virtual accounts. The cloud process uses public read-only reference prices and a fixed educational rule. Neither connects to an exchange, accesses accounts, or places real orders. The on-device wallet uses browser storage; browser timers are best-effort only. Cloud scheduling requires a successful published deployment and enabled scheduled functions. No forecasts or investment recommendations are provided.</p>
-  <div class="actions"><button class="secondary" id="exportBtn">Export data (JSON)</button><button class="danger" id="resetBtn">Reset paper portfolio</button></div>
- </section>
+
 </main>
 <footer>v10.3 · 20 assets · Educational paper-only simulator. On-device and cloud virtual portfolios are separate. No exchange connection or real-money execution.</footer>
 <script src="app-new1.js"></script>
 <script src="learning.js"></script>
-<script src="accelerated.js"></script>
 </body></html>
