@@ -383,7 +383,12 @@
     }
     if(!choices.length){state.autoLastAction="No trade: no confirmed signal or safeguards not met.";save();return;}
     choices.sort((a,b)=>b.score-a.score); const pick=choices[0];
-    const amount=Math.min(25,MAX_ORDER);
+    // Variable paper order size: €1–€50, scaled by signal strength and available safeguards.
+    const budget = Math.min(MAX_ORDER, Math.max(0, state.cash / (1 + FEE)),
+      Math.max(0, MAX_EXPOSURE - exposure()));
+    const confidence = Math.max(0, Math.min(1, (pick.score - hurdle) / 0.02));
+    const amount = Math.min(budget, Math.max(1, Math.round(1 + confidence * (MAX_ORDER - 1))));
+    if (amount < 1) { state.autoLastAction="Blocked: insufficient available paper funds."; save(); return; }
     const result=processPaperOrder({wallet:state,prices,side:pick.side,coin:pick.coin,amount,paused:state.paused});
     if(result.ok){state={...state,...result.next};state.autoLastAction="Auto paper "+pick.side.toUpperCase()+" "+pick.coin+" · "+eur(amount)+" · fee "+eur(result.fee)+(result.savingsTransfer?" · savings "+eur(result.savingsTransfer):"");save();render();}
     else {state.autoLastAction="Blocked by safeguard: "+result.reason;save();}
