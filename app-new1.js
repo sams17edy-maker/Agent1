@@ -605,7 +605,7 @@
     checkDailyLimit();
 
     let journal;
-    try { journal = JSON.parse(localStorage.getItem("agent1-learning-journal-v1") || "{}"); }
+    try { journal = JSON.parse(localStorage.getItem("agent1-learning-journal-v2") || "{}"); }
     catch { journal = {}; }
     const quotes = Array.isArray(journal.quotes) ? journal.quotes : [];
     const valid = quotes.filter(q => q && Number.isFinite(q.time) &&

@@ -1,8 +1,8 @@
 // Agent1 learning journal — paper analytics only; never places or changes orders.
 (() => {
   "use strict";
-  const KEY = "agent1-learning-journal-v1";
-  const START = 500;
+  const KEY = "agent1-learning-journal-v2";
+  const START = 10;
   const COIN_SYMBOLS = ["BTC", "ETH", "SOL", "XRP", "BNB", "ADA", "DOGE", "LINK", "AVAX", "DOT", "LTC", "BCH", "XLM", "UNI", "ATOM", "NEAR", "ETC", "APT", "ARB", "OP"];
   const LIMITS = Object.freeze({ maxOrder: 50, maxExposure: 250, dailyLoss: 10, feeRate: 0.002 });
   const $ = id => document.getElementById(id);
@@ -77,7 +77,7 @@
     if (!out) return;
     if (quotes.length < 4) { out.textContent = "Collect at least 4 time-separated public price observations. No historical data is invented."; return; }
     const simulate = kind => {
-      let cash = 500, units = 0, fees = 0, trades = 0;
+      let cash = 10, units = 0, fees = 0, trades = 0;
       for (let i = 0; i < quotes.length; i++) {
         const price = quotes[i].BTC;
         const prior = quotes.slice(Math.max(0, i - 3), i).map(q => q.BTC);
@@ -88,14 +88,14 @@
           if (price > avg && units === 0) action = "buy";
           if (price < avg && units > 0) action = "sell";
         }
-        if (action === "buy" && cash >= 25 * (1 + LIMITS.feeRate) && units === 0) { units = 25 / price; cash -= 25 * (1 + LIMITS.feeRate); fees += 25 * LIMITS.feeRate; trades++; }
+        if (action === "buy" && cash >= 5 * (1 + LIMITS.feeRate) && units === 0) { units = 5 / price; cash -= 5 * (1 + LIMITS.feeRate); fees += 5 * LIMITS.feeRate; trades++; }
         else if (action === "sell" && units > 0) { const gross = units * price; const charge = gross * LIMITS.feeRate; cash += gross - charge; fees += charge; units = 0; trades++; }
       }
       return { value: cash + units * quotes[quotes.length - 1].BTC, fees, trades };
     };
-    const rows = [["Cash baseline", { value: 500, fees: 0, trades: 0 }], ["€25 BTC hold", simulate("hold")], ["3-observation average rule", simulate("average")]];
+    const rows = [["Cash baseline", { value: 10, fees: 0, trades: 0 }], ["€5 BTC hold", simulate("hold")], ["3-observation average rule", simulate("average")]];
     const winner = rows.reduce((best, row) => row[1].value > best[1].value ? row : best);
-    out.textContent = ["Replay: " + quotes.length + " saved BTC/EUR observations", ...rows.map(([name, r]) => name + ": " + eur(r.value) + " | net change " + eur(r.value - 500) + " | fees " + eur(r.fees) + " | actions " + r.trades), "Highest in this sample: " + winner[0] + ".", "In-sample educational replay only; not a forecast or proof of a useful strategy.", "Isolated simulation: main wallet unchanged; fixed safeguards unchanged."].join("\n");
+    out.textContent = ["Replay: " + quotes.length + " saved BTC/EUR observations", ...rows.map(([name, r]) => name + ": " + eur(r.value) + " | net change " + eur(r.value - 10) + " | fees " + eur(r.fees) + " | actions " + r.trades), "Highest in this sample: " + winner[0] + ".", "In-sample educational replay only; not a forecast or proof of a useful strategy.", "Isolated simulation: main wallet unchanged; fixed safeguards unchanged."].join("\n");
   }
   // Heuristic risk/price estimator. Descriptive paper analytics, not a validated forecast.
   function estimateSignals() {
