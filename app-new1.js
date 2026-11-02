@@ -801,6 +801,39 @@
     URL.revokeObjectURL(url);
   }
 
+  function importDataFile(file) {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      let parsed;
+      try { parsed = JSON.parse(String(reader.result)); }
+      catch { say("report", "Import failed: file is not valid JSON."); return; }
+      const imported = parsed && parsed.mode === "paper-only" ? parsed.state : parsed;
+      if (!validSavedState(imported)) {
+        say("report", "Import rejected: invalid Agent1 paper portfolio. Current portfolio unchanged.");
+        return;
+      }
+      if (!confirm("Import this paper portfolio and replace the current local virtual wallet? This cannot be undone here.")) return;
+      state = {
+        ...initial(),
+        ...imported,
+        autoTrading: false,
+        autoLastAction: "Imported portfolio; auto mode remains OFF.",
+        holdings: { ...initial().holdings, ...imported.holdings },
+        costBasis: { ...initial().costBasis, ...(imported.costBasis || {}) },
+        history: [...imported.history],
+        portfolioHistory: [...(imported.portfolioHistory || initial().portfolioHistory)]
+      };
+      save();
+      render();
+      say("report", "Paper portfolio imported successfully. Auto mode is OFF.");
+      say("reportStatus", "Imported");
+      say("autoStatus", "OFF · imported portfolio");
+    };
+    reader.onerror = () => say("report", "Import failed: could not read file.");
+    reader.readAsText(file);
+  }
+
   function reset() {
     if (!confirm("Reset the €500 virtual paper portfolio?")) return;
     state = initial();
@@ -831,6 +864,12 @@
     });
     
     $("exportBtn")?.addEventListener("click", exportData);
+    $("importBtn")?.addEventListener("click", () => $("importFile")?.click());
+    $("importFile")?.addEventListener("change", e => {
+      const file = e.target.files?.[0];
+      importDataFile(file);
+      e.target.value = "";
+    });
     $("resetBtn")?.addEventListener("click", reset);
 
     refresh();
