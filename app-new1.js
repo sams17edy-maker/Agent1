@@ -376,7 +376,7 @@
     ];
     for (const item of lossCases) {
       const calculated = dailyLimitState(baseline, item.equity, "test-day");
-      const wallet = { cash: item.equity, holdings: { BTC: 0, ETH: 0, SOL: 0 }, history: [] };
+      const wallet = { cash: 500, holdings: { BTC: 0, ETH: 0, SOL: 0 }, history: [] };
       const buy = processPaperOrder({ wallet, prices: testPrices, side: "buy", coin: "ETH", amount: 10, paused: calculated.paused });
       const sellWallet = { cash: 0, holdings: { BTC: 2, ETH: 0, SOL: 0 }, history: [] };
       const sell = processPaperOrder({ wallet: sellWallet, prices: testPrices, side: "sell", coin: "BTC", amount: 10, paused: calculated.paused });
