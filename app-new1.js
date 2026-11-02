@@ -124,15 +124,22 @@
 
   function total() { return state.cash + exposure(); }
 
-  function checkDailyLimit() {
-    const today = new Date().toDateString();
-    if (today !== state.day) {
-      state.day = today;
-      state.dayEquity = total();
-      state.paused = false;
+  function dailyLimitState(previous, equity, today) {
+    if (!previous || previous.day !== today) {
+      return { day: today, dayEquity: equity, paused: false };
     }
-    if (state.dayEquity - total() >= DAILY_LOSS_LIMIT)
-      state.paused = true;
+    return {
+      day: previous.day,
+      dayEquity: previous.dayEquity,
+      paused: previous.paused || previous.dayEquity - equity >= DAILY_LOSS_LIMIT
+    };
+  }
+
+  function checkDailyLimit() {
+    const next = dailyLimitState(state, total(), new Date().toDateString());
+    state.day = next.day;
+    state.dayEquity = next.dayEquity;
+    state.paused = next.paused;
   }
 
   function recordPortfolioSnapshot() {
@@ -359,21 +366,34 @@
     const lines = [];
     const check = (name, passed) => lines.push(`${name}: ${passed ? "PASS" : "FAIL"}`);
 
-    // Daily loss boundary, and sells remain available while buying is paused.
-    const lossCases = [
-      { loss: 9.99, paused: false, expectedBuy: true },
-      { loss: 10.00, paused: true, expectedBuy: false },
-      { loss: 12.00, paused: true, expectedBuy: false }
-    ];
+    // Exercise the real daily-loss calculation against portfolio equity.
     const testPrices = { BTC: 10, ETH: 2, SOL: 1 };
+    const baseline = { day: "test-day", dayEquity: 500, paused: false };
+    const lossCases = [
+      { equity: 490.01, expectedPaused: false, label: "€9.99 loss" },
+      { equity: 490.00, expectedPaused: true, label: "€10.00 loss" },
+      { equity: 488.00, expectedPaused: true, label: "€12.00 loss" }
+    ];
     for (const item of lossCases) {
-      const wallet = { cash: 500, holdings: { BTC: 1, ETH: 0, SOL: 0 }, history: [] };
-      const before = JSON.stringify(wallet);
-      const buy = processPaperOrder({ wallet, prices: testPrices, side: "buy", coin: "ETH", amount: 10, paused: item.paused });
-      const sell = processPaperOrder({ wallet, prices: testPrices, side: "sell", coin: "BTC", amount: 10, paused: item.paused });
-      check(`Daily-loss €${item.loss.toFixed(2)} (buy ${item.expectedBuy ? "allowed" : "blocked"}, sell allowed)`,
-        buy.ok === item.expectedBuy && sell.ok && (item.expectedBuy || JSON.stringify(wallet) === before));
+      const calculated = dailyLimitState(baseline, item.equity, "test-day");
+      const wallet = { cash: item.equity, holdings: { BTC: 0, ETH: 0, SOL: 0 }, history: [] };
+      const buy = processPaperOrder({ wallet, prices: testPrices, side: "buy", coin: "ETH", amount: 10, paused: calculated.paused });
+      const sellWallet = { cash: 0, holdings: { BTC: 2, ETH: 0, SOL: 0 }, history: [] };
+      const sell = processPaperOrder({ wallet: sellWallet, prices: testPrices, side: "sell", coin: "BTC", amount: 10, paused: calculated.paused });
+      check(`Daily-loss calculation ${item.label}`,
+        calculated.paused === item.expectedPaused &&
+        buy.ok === !item.expectedPaused && sell.ok);
     }
+    const stickyPause = dailyLimitState(
+      dailyLimitState(baseline, 490, "test-day"), 499, "test-day"
+    );
+    check("Daily-loss pause remains active after recovery",
+      stickyPause.paused === true);
+    const nextDay = dailyLimitState(
+      dailyLimitState(baseline, 490, "test-day"), 500, "next-day"
+    );
+    check("New day resets loss baseline and pause",
+      nextDay.day === "next-day" && nextDay.dayEquity === 500 && !nextDay.paused);
 
     // Invalid / oversized order.
     const base = { cash: 500, holdings: { BTC: 0, ETH: 0, SOL: 0 }, history: [] };
