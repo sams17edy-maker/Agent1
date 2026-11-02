@@ -372,13 +372,8 @@
   function runAutonomousDecision() {
     const decisionStarted = performance.now();
     if (!state.autoTrading) return;
-    if (Date.now() - state.started >= 30 * 60 * 1000) {
-      state.autoTrading = false;
-      state.autoLastAction = "Stopped: 30-minute paper experiment complete.";
-      save();
-      render();
-      return;
-    }
+    // Autonomous paper mode stays ON until the user manually switches it OFF.
+    // The 30-minute experiment is a reporting window, not an auto-trading kill switch.
     if (!pricesUsable(prices, pricesUpdatedAt)) {
       state.autoLastAction = "Paused: public prices missing, invalid, or stale.";
       save(); return;
