@@ -10,7 +10,8 @@
   function load() {
     try {
       const value = JSON.parse(localStorage.getItem(KEY) || '{"sessions":[],"reviews":0}');
-      if (!value || !Array.isArray(value.sessions) || !Array.isArray(value.quotes) || !Number.isFinite(value.reviews)) throw new Error("invalid");
+      if (!value || !Array.isArray(value.sessions) || !Number.isFinite(value.reviews)) throw new Error("invalid");
+      if (!Array.isArray(value.quotes)) value.quotes = [];
       return value;
     } catch {
       return { sessions: [], quotes: [], reviews: 0 };
