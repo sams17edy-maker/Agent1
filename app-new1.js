@@ -153,7 +153,10 @@
   // Shared order engine used by the live paper ticket and isolated tests.
   function processPaperOrder({ wallet, prices: quote, side, coin, amount, paused }) {
     if (!wallet || !wallet.holdings || !quote ||
-        !["BTC", "ETH", "SOL"].every(c => Number.isFinite(quote[c]) && quote[c] > 0) ||
+        !Number.isFinite(wallet.cash) || wallet.cash < 0 ||
+        !["BTC", "ETH", "SOL"].every(c =>
+          Number.isFinite(wallet.holdings[c] ?? 0) && (wallet.holdings[c] ?? 0) >= 0 &&
+          Number.isFinite(quote[c]) && quote[c] > 0) ||
         !["BTC", "ETH", "SOL"].includes(coin) ||
         !["buy", "sell"].includes(side) ||
         !Number.isFinite(amount) || amount <= 0 || amount > MAX_ORDER) {
@@ -332,6 +335,17 @@
     check("Future-dated price feed rejected", !pricesUsable(testPrices, fixedNow + 1, fixedNow));
     const invalidQuoteOrder = processPaperOrder({ wallet: base, prices: { BTC: 10, ETH: NaN, SOL: 1 }, side: "buy", coin: "BTC", amount: 10, paused: false });
     check("Order rejected with malformed quote", !invalidQuoteOrder.ok && invalidQuoteOrder.reason === "invalid-order");
+
+    // Wallet integrity: malformed balances and holdings must never create NaN or negative state.
+    const badCash = { cash: NaN, holdings: { BTC: 0, ETH: 0, SOL: 0 }, history: [] };
+    const badCashOrder = processPaperOrder({ wallet: badCash, prices: testPrices, side: "buy", coin: "BTC", amount: 10, paused: false });
+    check("Order rejected with invalid virtual cash", !badCashOrder.ok && badCashOrder.reason === "invalid-order");
+    const negativeHolding = { cash: 500, holdings: { BTC: -1, ETH: 0, SOL: 0 }, history: [] };
+    const negativeHoldingOrder = processPaperOrder({ wallet: negativeHolding, prices: testPrices, side: "sell", coin: "BTC", amount: 1, paused: false });
+    check("Order rejected with negative holding", !negativeHoldingOrder.ok && negativeHoldingOrder.reason === "invalid-order");
+    const negativeCash = { cash: -1, holdings: { BTC: 0, ETH: 0, SOL: 0 }, history: [] };
+    const negativeCashOrder = processPaperOrder({ wallet: negativeCash, prices: testPrices, side: "buy", coin: "BTC", amount: 1, paused: false });
+    check("Order rejected with negative virtual cash", !negativeCashOrder.ok && negativeCashOrder.reason === "invalid-order");
 
     const passed = lines.every(line => line.endsWith("PASS"));
     return `Paper safeguards: ${passed ? "ALL PASS" : "FAIL"}\\n` + lines.join("\\n") +
