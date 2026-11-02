@@ -128,8 +128,16 @@
 
   function exposure() {
     if (!prices) return 0;
-    return COIN_SYMBOLS
-      .reduce((sum, coin) => sum + (state.holdings[coin] || 0) * prices[coin], 0);
+    let value = 0;
+    for (const coin of COIN_SYMBOLS) {
+      const quantity = state.holdings[coin] || 0;
+      if (quantity <= 0) continue;
+      const price = prices[coin];
+      // Never treat an unpriced existing holding as zero exposure.
+      if (!Number.isFinite(price) || price <= 0) return Infinity;
+      value += quantity * price;
+    }
+    return value;
   }
 
   function total() { return state.cash + (state.savings || 0) + exposure(); }
@@ -274,9 +282,11 @@
         Object.keys(wallet.holdings).some(c => !supportedCoins.includes(c)) || !quote ||
         !Number.isFinite(wallet.cash) || wallet.cash < 0 ||
         !supportedCoins.every(c =>
-          Number.isFinite(wallet.holdings[c] ?? 0) && (wallet.holdings[c] ?? 0) >= 0 &&
-          Number.isFinite(quote[c]) && quote[c] > 0) ||
+          Number.isFinite(wallet.holdings[c] ?? 0) && (wallet.holdings[c] ?? 0) >= 0) ||
         !COIN_SYMBOLS.includes(coin) ||
+        !Number.isFinite(quote[coin]) || quote[coin] <= 0 ||
+        supportedCoins.some(c => (wallet.holdings[c] ?? 0) > 0 &&
+          (!Number.isFinite(quote[c]) || quote[c] <= 0)) ||
         !["buy", "sell"].includes(side) ||
         !Number.isFinite(amount) || amount <= 0 || amount > MAX_ORDER) {
       return { ok: false, reason: "invalid-order" };
@@ -294,8 +304,10 @@
     }
     const fee = amount * FEE;
     const quantity = amount / quote[coin];
-    const currentExposure = COIN_SYMBOLS
-      .reduce((sum, c) => sum + (next.holdings[c] || 0) * quote[c], 0);
+    const currentExposure = COIN_SYMBOLS.reduce((sum, c) => {
+      const quantity = next.holdings[c] || 0;
+      return quantity > 0 ? sum + quantity * quote[c] : sum;
+    }, 0);
 
     if (side === "buy") {
       const reason = buyBlockReason({
