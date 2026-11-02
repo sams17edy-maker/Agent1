@@ -613,6 +613,7 @@
       COIN_SYMBOLS.some(c => Number.isFinite(Number(q[c])) && Number(q[c]) > 0));
     const previous = valid.length ? valid[valid.length - 1] : null;
     const prior = valid.length > 1 ? valid[valid.length - 2] : null;
+    const older = valid.length > 2 ? valid[valid.length - 3] : null;
     if (!previous) {
       state.autoLastAction = "Waiting for first valid observation.";
       save(); return;
@@ -630,15 +631,23 @@
       if (!Number.isFinite(nowPrice) || nowPrice <= 0) continue;
       const held = state.holdings[coin] || 0;
       const change = Number.isFinite(oldPrice) && oldPrice > 0 ? nowPrice / oldPrice - 1 : 0;
+      const olderPrice = Number(older?.[coin]);
+      const priorChange = Number.isFinite(olderPrice) && olderPrice > 0 && Number.isFinite(oldPrice)
+        ? oldPrice / olderPrice - 1 : NaN;
       const marketPrice = prices[coin];
       if (!priceIsFresh(coin) || !Number.isFinite(marketPrice) || marketPrice <= 0) continue;
 
-      if (prior && !state.paused && held === 0 && change <= -hurdle) {
-        choices.push({ side: "buy", coin, score: -change, reason: "fresh pullback exceeds fee-aware hurdle" });
+      // Swing Scanner: require a three-observation turn, not merely a falling/rising tick.
+      // Buy only after a meaningful dip begins recovering; sell only after an upswing rolls over.
+      const reversalReady = older && prior && Number.isFinite(priorChange);
+      const dipThenBounce = reversalReady && priorChange <= -hurdle && change >= hurdle * 0.25;
+      const riseThenRollover = reversalReady && priorChange >= hurdle && change <= -hurdle * 0.25;
+      if (!state.paused && held === 0 && dipThenBounce) {
+        choices.push({ side: "buy", coin, score: Math.abs(priorChange) + change, reason: "dip followed by confirmed upward turn; fee-aware" });
       }
       const netValue = held * marketPrice * (1 - FEE);
-      if (held > 0 && change >= hurdle && netValue > (state.costBasis[coin] || Infinity)) {
-        choices.push({ side: "sell", coin, score: change, reason: "fresh rise clears estimated fees and cost basis" });
+      if (held > 0 && riseThenRollover && netValue > (state.costBasis[coin] || Infinity)) {
+        choices.push({ side: "sell", coin, score: priorChange + Math.abs(change), reason: "upswing rolled over; estimated net proceeds exceed cost basis" });
       }
     }
 
