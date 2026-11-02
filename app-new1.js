@@ -213,11 +213,6 @@
     const elapsedMinutes = Math.min(30,
       Math.floor((Date.now() - state.started) / 60000));
     const experimentComplete = Date.now() - state.started >= 30 * 60 * 1000;
-    if (experimentComplete && state.autoTrading) {
-      state.autoTrading = false;
-      state.autoLastAction = "Stopped: 30-minute paper experiment complete.";
-      save();
-    }
 
     say("equity", eur(value));
     say("pnl", `${profit >= 0 ? "+" : ""}${eur(profit)} (${(profit / START * 100).toFixed(2)}%)`);
@@ -753,7 +748,20 @@
   function start() {
     $("refreshBtn")?.addEventListener("click", refresh);
     $("orderBtn")?.addEventListener("click", trade);
-    $("autoTrading")?.addEventListener("change", e => { state.autoTrading=!!e.target.checked; state.autoLastAction=state.autoTrading?"Enabled; waiting for fresh quote.":"Stopped by user."; save(); render(); });
+    $("autoTrading")?.addEventListener("change", e => {
+      const requested = !!e.target.checked;
+      if (requested && Date.now() - state.started >= 30 * 60 * 1000) {
+        state.started = Date.now();
+        state.autoLastQuoteAt = 0;
+        state.autoLastAction = "New 30-minute paper session started; waiting for fresh quote.";
+      } else {
+        state.autoLastAction = requested ? "Enabled; waiting for fresh quote." : "Stopped by user.";
+      }
+      state.autoTrading = requested;
+      save();
+      render();
+      if (requested) refresh();
+    });
     $("reportBtn")?.addEventListener("click", report);
     $("scenarioBtn")?.addEventListener("click", () => {
       say("scenarioResult", scenario() + "\n\n" + testDailyLossGuard());
