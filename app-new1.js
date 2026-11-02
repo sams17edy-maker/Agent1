@@ -347,6 +347,16 @@
     const negativeCashOrder = processPaperOrder({ wallet: negativeCash, prices: testPrices, side: "buy", coin: "BTC", amount: 1, paused: false });
     check("Order rejected with negative virtual cash", !negativeCashOrder.ok && negativeCashOrder.reason === "invalid-order");
 
+    // Order boundaries: exact maximum and smallest positive amount are valid when wallet limits permit.
+    const maxWallet = { cash: 500, holdings: { BTC: 0, ETH: 0, SOL: 0 }, history: [] };
+    const maxOrder = processPaperOrder({ wallet: maxWallet, prices: testPrices, side: "buy", coin: "BTC", amount: 50, paused: false });
+    check("Exact €50 order accepted", maxOrder.ok && Math.abs(maxOrder.next.cash - 449.90) < 1e-9);
+    const tinyWallet = { cash: 500, holdings: { BTC: 0, ETH: 0, SOL: 0 }, history: [] };
+    const tinyOrder = processPaperOrder({ wallet: tinyWallet, prices: testPrices, side: "buy", coin: "BTC", amount: 0.01, paused: false });
+    check("Small positive order accepted", tinyOrder.ok && Math.abs(tinyOrder.fee - 0.00002) < 1e-12);
+    const zeroOrder = processPaperOrder({ wallet: tinyWallet, prices: testPrices, side: "buy", coin: "BTC", amount: 0, paused: false });
+    check("Zero-value order rejected", !zeroOrder.ok && zeroOrder.reason === "invalid-order");
+
     const passed = lines.every(line => line.endsWith("PASS"));
     return `Paper safeguards: ${passed ? "ALL PASS" : "FAIL"}\\n` + lines.join("\\n") +
       "\\nIsolated test wallets only; no real or main-portfolio order was placed.";
