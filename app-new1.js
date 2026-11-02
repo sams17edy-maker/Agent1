@@ -172,7 +172,7 @@
 
   function updateModeIndicator() {
     const pill = $("liveModePill");
-    if (pill) pill.textContent = state.autoTrading ? "LIVE TRADING ON" : "LIVE TRADING OFF";
+    if (pill) pill.textContent = state.autoTrading ? "AUTO PAPER MODE ON" : "AUTO PAPER MODE OFF";
   }
 
   async function getPrices() {
