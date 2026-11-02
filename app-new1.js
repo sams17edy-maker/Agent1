@@ -25,8 +25,8 @@
     paused: false
   });
 
-  function validSavedState(s) {
-    if (!s || typeof s !== "object" || Array.isArray(s)) return false;
+  function validSavedState(s, now = Date.now()) {
+    if (!s || typeof s !== "object" || Array.isArray(s) || !Number.isFinite(now)) return false;
     if (!Number.isFinite(s.cash) || s.cash < 0) return false;
     if (!s.holdings || typeof s.holdings !== "object" || Array.isArray(s.holdings)) return false;
     const supportedCoins = ["BTC", "ETH", "SOL"];
@@ -38,16 +38,22 @@
     if (s.portfolioHistory !== undefined &&
         (!Array.isArray(s.portfolioHistory) || s.portfolioHistory.length > 10000 ||
          !s.portfolioHistory.every(p => p && Number.isFinite(p.time) && p.time > 0 &&
-           p.time <= Date.now() && Number.isFinite(p.value) && p.value >= 0))) return false;
-    if (!Number.isFinite(s.started) || s.started <= 0 || s.started > Date.now()) return false;
+           p.time <= now && Number.isFinite(p.value) && p.value >= 0))) return false;
+    if (!Number.isFinite(s.started) || s.started <= 0 || s.started > now) return false;
     if (typeof s.day !== "string" || !Number.isFinite(s.dayEquity) || s.dayEquity < 0) return false;
     if (typeof s.paused !== "boolean") return false;
-    return s.history.every(t => t && Number.isFinite(t.time) &&
-      t.time > 0 && t.time <= Date.now() &&
+    if (!s.history.every(t => t && Number.isFinite(t.time) &&
+      t.time > 0 && t.time <= now &&
       ["BUY", "SELL"].includes(t.side) && ["BTC", "ETH", "SOL"].includes(t.coin) &&
       Number.isFinite(t.amount) && t.amount > 0 && t.amount <= MAX_ORDER &&
       Number.isFinite(t.fee) && t.fee >= 0 &&
-      t.fee <= t.amount * FEE + 1e-9);
+      t.fee <= t.amount * FEE + 1e-9)) return false;
+    // Transactions are stored newest-first; reject timestamps out of that order.
+    if (s.history.some((t, i, a) => i > 0 && t.time > a[i - 1].time)) return false;
+    // Portfolio snapshots are stored oldest-first.
+    if (Array.isArray(s.portfolioHistory) &&
+        s.portfolioHistory.some((p, i, a) => i > 0 && p.time < a[i - 1].time)) return false;
+    return true;
   }
 
   // Pure recovery helper: validates a supplied serialized snapshot without touching browser storage.
@@ -56,7 +62,7 @@
     let parsed;
     try { parsed = JSON.parse(raw); }
     catch { return { recovered: true, reason: "malformed-json", state: initial() }; }
-    if (!validSavedState(parsed) || parsed.started > now) {
+    if (!validSavedState(parsed, now)) {
       return { recovered: true, reason: "invalid-state", state: initial() };
     }
     return {
@@ -563,6 +569,29 @@
     check("Valid portfolio history is preserved",
       !validPortfolioHistory.recovered &&
       validPortfolioHistory.state.portfolioHistory[0].value === 501);
+    const controlledNow = Date.now() - 100000;
+    const controlledFutureRecovery = recoverSnapshot(JSON.stringify({
+      ...fixture, started: controlledNow + 50000,
+      portfolioHistory: [{ time: controlledNow + 50000, value: 500 }]
+    }), controlledNow);
+    check("Recovery uses supplied reference time for all saved timestamps",
+      controlledFutureRecovery.recovered);
+    const unorderedTransactions = recoverSnapshot(JSON.stringify({
+      ...fixture, history: [
+        { time: Date.now() - 1000, side: "BUY", coin: "BTC", amount: 10, fee: 0.02 },
+        { time: Date.now(), side: "SELL", coin: "BTC", amount: 10, fee: 0.02 }
+      ]
+    }), Date.now());
+    check("Out-of-order saved transactions safely recover",
+      unorderedTransactions.recovered && unorderedTransactions.state.history.length === 0);
+    const unorderedSnapshots = recoverSnapshot(JSON.stringify({
+      ...fixture, portfolioHistory: [
+        { time: Date.now(), value: 500 },
+        { time: Date.now() - 1000, value: 501 }
+      ]
+    }), Date.now());
+    check("Out-of-order portfolio snapshots safely recover",
+      unorderedSnapshots.recovered && unorderedSnapshots.state.portfolioHistory.length === 1);
 
     check("Recovery tests leave main portfolio and storage untouched",
       JSON.stringify(state) === JSON.stringify(load()));
