@@ -2,7 +2,7 @@
   "name": "Crypto AI Trader — Paper",
   "short_name": "Crypto Paper",
   "description": "Educational cryptocurrency paper-trading simulator. No real trading.",
-  "start_url": "/",
+  "start_url": "/?v=10.4",
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait",
@@ -15,5 +15,6 @@
       "type": "image/svg+xml",
       "purpose": "any"
     }
-  ]
+  ],
+  "id": "/?app=agent1-paper-v10"
 }
