@@ -258,34 +258,53 @@
   }
 
   function testDailyLossGuard() {
-    const cases = [
+    const lines = [];
+    const check = (name, passed) => lines.push(`${name}: ${passed ? "PASS" : "FAIL"}`);
+
+    // Daily loss boundary, and sells remain available while buying is paused.
+    const lossCases = [
       { loss: 9.99, paused: false, expectedBuy: true },
       { loss: 10.00, paused: true, expectedBuy: false },
       { loss: 12.00, paused: true, expectedBuy: false }
     ];
     const testPrices = { BTC: 10, ETH: 2, SOL: 1 };
-    const results = cases.map(({ loss, paused, expectedBuy }) => {
-      const wallet = {
-        cash: 500, holdings: { BTC: 1, ETH: 0, SOL: 0 }, history: []
-      };
+    for (const item of lossCases) {
+      const wallet = { cash: 500, holdings: { BTC: 1, ETH: 0, SOL: 0 }, history: [] };
       const before = JSON.stringify(wallet);
-      const buy = processPaperOrder({
-        wallet, prices: testPrices, side: "buy", coin: "ETH",
-        amount: 10, paused
-      });
-      const sell = processPaperOrder({
-        wallet, prices: testPrices, side: "sell", coin: "BTC",
-        amount: 10, paused
-      });
-      const rejectedBuyUnchanged = expectedBuy || JSON.stringify(wallet) === before;
-      const passed = buy.ok === expectedBuy && sell.ok && rejectedBuyUnchanged;
-      return { loss, buy: buy.ok ? "ALLOWED" : "BLOCKED",
-        sell: sell.ok ? "ALLOWED" : "BLOCKED", passed };
-    });
-    const passed = results.every(x => x.passed);
-    return `Shared paper-order engine test: ${passed ? "PASS" : "FAIL"}\n` +
-      results.map(x => `Loss €${x.loss.toFixed(2)}: BUY ${x.buy}, SELL ${x.sell} — ${x.passed ? "PASS" : "FAIL"}`).join("\n") +
-      "\nIsolated test wallet only; no real or main-portfolio order was placed.";
+      const buy = processPaperOrder({ wallet, prices: testPrices, side: "buy", coin: "ETH", amount: 10, paused: item.paused });
+      const sell = processPaperOrder({ wallet, prices: testPrices, side: "sell", coin: "BTC", amount: 10, paused: item.paused });
+      check(`Daily-loss €${item.loss.toFixed(2)} (buy ${item.expectedBuy ? "allowed" : "blocked"}, sell allowed)`,
+        buy.ok === item.expectedBuy && sell.ok && (item.expectedBuy || JSON.stringify(wallet) === before));
+    }
+
+    // Invalid / oversized order.
+    const base = { cash: 500, holdings: { BTC: 0, ETH: 0, SOL: 0 }, history: [] };
+    const oversized = processPaperOrder({ wallet: base, prices: testPrices, side: "buy", coin: "BTC", amount: 50.01, paused: false });
+    check("Order above €50 rejected", !oversized.ok && oversized.reason === "invalid-order");
+
+    // Cash guard includes the fee.
+    const poor = { cash: 5, holdings: { BTC: 0, ETH: 0, SOL: 0 }, history: [] };
+    const noCash = processPaperOrder({ wallet: poor, prices: testPrices, side: "buy", coin: "BTC", amount: 10, paused: false });
+    check("Insufficient virtual cash rejected", !noCash.ok && noCash.reason === "insufficient-cash" && JSON.stringify(poor) === JSON.stringify({ cash: 5, holdings: { BTC: 0, ETH: 0, SOL: 0 }, history: [] }));
+
+    // Existing €245 exposure plus €10 order must exceed the €250 cap.
+    const exposed = { cash: 500, holdings: { BTC: 24.5, ETH: 0, SOL: 0 }, history: [] };
+    const exposureBlock = processPaperOrder({ wallet: exposed, prices: testPrices, side: "buy", coin: "ETH", amount: 10, paused: false });
+    check("Exposure cap enforced", !exposureBlock.ok && exposureBlock.reason === "exposure-limit");
+
+    // Fee calculations and balances on successful isolated orders.
+    const feeWallet = { cash: 500, holdings: { BTC: 0, ETH: 0, SOL: 0 }, history: [] };
+    const buy = processPaperOrder({ wallet: feeWallet, prices: testPrices, side: "buy", coin: "BTC", amount: 10, paused: false });
+    const sell = buy.ok ? processPaperOrder({ wallet: buy.next, prices: testPrices, side: "sell", coin: "BTC", amount: 10, paused: false }) : { ok: false };
+    check("Buy/sell fee math (0.2% each)", buy.ok && Math.abs(buy.fee - 0.02) < 1e-9 && Math.abs(buy.next.cash - 489.98) < 1e-9 && sell.ok && Math.abs(sell.fee - 0.02) < 1e-9 && Math.abs(sell.next.cash - 499.96) < 1e-9);
+
+    const empty = { cash: 500, holdings: { BTC: 0, ETH: 0, SOL: 0 }, history: [] };
+    const noCoins = processPaperOrder({ wallet: empty, prices: testPrices, side: "sell", coin: "BTC", amount: 10, paused: false });
+    check("Sell without sufficient coins rejected", !noCoins.ok && noCoins.reason === "insufficient-coins" && JSON.stringify(empty) === JSON.stringify({ cash: 500, holdings: { BTC: 0, ETH: 0, SOL: 0 }, history: [] }));
+
+    const passed = lines.every(line => line.endsWith("PASS"));
+    return `Paper safeguards: ${passed ? "ALL PASS" : "FAIL"}\\n` + lines.join("\\n") +
+      "\\nIsolated test wallets only; no real or main-portfolio order was placed.";
   }
   function exportData() {
     const blob = new Blob(
