@@ -2,7 +2,7 @@
 (() => {
   "use strict";
 
-  const START = 500;
+  const START = 10;
   const COINS = Object.freeze({BTC: { name: "Bitcoin", id: "bitcoin" }, ETH: { name: "Ethereum", id: "ethereum" }, SOL: { name: "Solana", id: "solana" }, XRP: { name: "XRP", id: "ripple" }, PEPE: { name: "Pepe", id: "pepe" }, ADA: { name: "Cardano", id: "cardano" }, DOGE: { name: "Dogecoin", id: "dogecoin" }, LINK: { name: "Chainlink", id: "chainlink" }, AVAX: { name: "Avalanche", id: "avalanche-2" }, DOT: { name: "Polkadot", id: "polkadot" }, LTC: { name: "Litecoin", id: "litecoin" }, BCH: { name: "Bitcoin Cash", id: "bitcoin-cash" }, XLM: { name: "Stellar", id: "stellar" }, UNI: { name: "Uniswap", id: "uniswap" }, ATOM: { name: "Cosmos", id: "cosmos" }, NEAR: { name: "NEAR Protocol", id: "near" }, ETC: { name: "Ethereum Classic", id: "ethereum-classic" }, APT: { name: "Aptos", id: "aptos" }, ARB: { name: "Arbitrum", id: "arbitrum" }, OP: { name: "Optimism", id: "optimism" }, COQ: { name: "Coq Inu", id: "coq-inu" }, CRO: { name: "Cronos", id: "crypto-com-chain" }});
   const COIN_SYMBOLS = Object.keys(COINS);
   // Keep legacy BNB records readable without listing or trading BNB in the new market set.
@@ -987,7 +987,7 @@
   }
 
   function reset() {
-    if (!confirm("Reset the €500 virtual paper portfolio?")) return;
+    if (!confirm("Reset the virtual paper portfolio to €10 and clear all previous paper orders?")) return;
     const nextState = initial();
     if (!commitState(nextState)) {
       say("report", "Reset cancelled because the browser could not save the new empty paper wallet. Existing wallet remains active.");
