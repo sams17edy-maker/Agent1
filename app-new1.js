@@ -102,6 +102,19 @@
   let prices = null;
   let pricesUpdatedAt = null;
   let busy = false;
+  const speedStats = { fetchMs: null, lastQuoteAt: null, decisionMs: null, lastCycleMs: null, lastCycleStarted: null, lastError: null };
+  function renderSpeedMonitor() {
+    const el = $("speedMonitor"); if (!el) return;
+    const age = speedStats.lastQuoteAt == null ? "—" : ((Date.now()-speedStats.lastQuoteAt)/1000).toFixed(1)+" s ago";
+    el.innerHTML = [["Quote request",speedStats.fetchMs==null?"Waiting":speedStats.fetchMs.toFixed(0)+" ms"],["Last quote",age],["Local decision",speedStats.decisionMs==null?"Waiting":speedStats.decisionMs.toFixed(1)+" ms"],["Refresh interval",speedStats.lastCycleMs==null?"—":(speedStats.lastCycleMs/1000).toFixed(1)+" s"],["Status",speedStats.lastError|| (state.autoTrading?"AutoTrade ON · paper-only":"AutoTrade OFF")]].map(([k,v])=>'<div class="asset"><span class="sub">'+k+'</span><strong>'+v+'</strong></div>').join("");
+  }
+  function ensureSpeedMonitor() {
+    if ($("speedMonitor")) return;
+    const main=document.querySelector("main"); if(!main)return;
+    const section=document.createElement("section"); section.className="panel wide";
+    section.innerHTML='<div class="row"><strong>Speed monitor</strong><span class="pill">PAPER DIAGNOSTICS</span></div><p class="sub">Measures app quote-request and local decision time. Request speed does not guarantee fresh upstream prices.</p><div id="speedMonitor"></div>';
+    main.insertBefore(section,main.firstChild); renderSpeedMonitor();
+  }
 
   function save() {
     try { localStorage.setItem(KEY, JSON.stringify(state)); }
@@ -252,18 +265,28 @@
   }
   async function refresh() {
     if (busy) return;
+    const cycleStarted=performance.now();
+    if(speedStats.lastCycleStarted!=null) speedStats.lastCycleMs=cycleStarted-speedStats.lastCycleStarted;
+    speedStats.lastCycleStarted=cycleStarted;
     busy = true;
     say("marketStatus", "Loading public prices...");
     try {
+      const fetchStarted=performance.now();
       const fresh = await getPrices();
+      speedStats.fetchMs=performance.now()-fetchStarted;
+      speedStats.lastQuoteAt=Date.now(); speedStats.lastError=null;
       prices = fresh; pricesUpdatedAt = Date.now();
       if (!state.basisInitialized) {
         state.costBasis = { ...initial().costBasis, ...(state.costBasis || {}) };
         for (const c of COIN_SYMBOLS) state.costBasis[c] = (state.holdings[c] || 0) * prices[c];
         state.basisInitialized = true;
       }
-      render(); runAutonomousDecision(); save();
+      render();
+      const decisionStarted=performance.now(); runAutonomousDecision();
+      speedStats.decisionMs=performance.now()-decisionStarted;
+      renderSpeedMonitor(); save();
     } catch (e) {
+      speedStats.lastError="Quote request failed"; renderSpeedMonitor();
       say("marketStatus", "Public prices temporarily unavailable.");
       console.warn(e);
     } finally {
@@ -736,6 +759,7 @@
   }
 
   function start() {
+    ensureSpeedMonitor();
     $("refreshBtn")?.addEventListener("click", refresh);
     $("orderBtn")?.addEventListener("click", trade);
     $("autoTrading")?.addEventListener("change", e => {
