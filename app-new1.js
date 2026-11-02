@@ -3,6 +3,9 @@
   "use strict";
 
   const START = 500;
+  const COINS = Object.freeze({BTC: { name: "Bitcoin", id: "bitcoin" }, ETH: { name: "Ethereum", id: "ethereum" }, SOL: { name: "Solana", id: "solana" }, XRP: { name: "XRP", id: "ripple" }, BNB: { name: "BNB", id: "binancecoin" }, ADA: { name: "Cardano", id: "cardano" }, DOGE: { name: "Dogecoin", id: "dogecoin" }, LINK: { name: "Chainlink", id: "chainlink" }, AVAX: { name: "Avalanche", id: "avalanche-2" }, DOT: { name: "Polkadot", id: "polkadot" }, LTC: { name: "Litecoin", id: "litecoin" }, BCH: { name: "Bitcoin Cash", id: "bitcoin-cash" }, XLM: { name: "Stellar", id: "stellar" }, UNI: { name: "Uniswap", id: "uniswap" }, ATOM: { name: "Cosmos", id: "cosmos" }, NEAR: { name: "NEAR Protocol", id: "near" }, ETC: { name: "Ethereum Classic", id: "ethereum-classic" }, APT: { name: "Aptos", id: "aptos" }, ARB: { name: "Arbitrum", id: "arbitrum" }, OP: { name: "Optimism", id: "optimism" }});
+  const COIN_SYMBOLS = Object.keys(COINS);
+
   const FEE = 0.002;
   const MAX_ORDER = 50;
   const MAX_EXPOSURE = 250;
@@ -15,8 +18,8 @@
   }).format(Number(n) || 0);
 
   const initial = () => ({
-    cash: START, savings: 0, holdings: { BTC: 0, ETH: 0, SOL: 0 },
-    costBasis: { BTC: 0, ETH: 0, SOL: 0 }, basisInitialized: false,
+    cash: START, savings: 0, holdings: Object.fromEntries(COIN_SYMBOLS.map(c => [c, 0])),
+    costBasis: Object.fromEntries(COIN_SYMBOLS.map(c => [c, 0])), basisInitialized: false,
     autoTrading: false, autoLastQuoteAt: 0, autoLastAction: "Not started",
     history: [], portfolioHistory: [{ time: Date.now(), value: START }],
     started: Date.now(), day: new Date().toDateString(), dayEquity: START, paused: false
@@ -26,7 +29,7 @@
     if (!s || typeof s !== "object" || Array.isArray(s) || !Number.isFinite(now)) return false;
     if (!Number.isFinite(s.cash) || s.cash < 0) return false;
     if (!s.holdings || typeof s.holdings !== "object" || Array.isArray(s.holdings)) return false;
-    const supportedCoins = ["BTC", "ETH", "SOL"];
+    const supportedCoins = COIN_SYMBOLS;
     if (Object.keys(s.holdings).some(c => !supportedCoins.includes(c))) return false;
     if (!supportedCoins.every(c =>
       Number.isFinite(s.holdings[c] ?? 0) && (s.holdings[c] ?? 0) >= 0)) return false;
@@ -41,7 +44,7 @@
     if (typeof s.paused !== "boolean") return false;
     if (!s.history.every(t => t && Number.isFinite(t.time) &&
       t.time > 0 && t.time <= now &&
-      ["BUY", "SELL"].includes(t.side) && ["BTC", "ETH", "SOL"].includes(t.coin) &&
+      ["BUY", "SELL"].includes(t.side) && COIN_SYMBOLS.includes(t.coin) &&
       Number.isFinite(t.amount) && t.amount > 0 && t.amount <= MAX_ORDER &&
       Number.isFinite(t.fee) && t.fee >= 0 &&
       t.fee <= t.amount * FEE + 1e-9)) return false;
@@ -68,7 +71,7 @@
       state: {
         ...initial(),
         ...parsed,
-        holdings: { BTC: 0, ETH: 0, SOL: 0, ...parsed.holdings },
+        holdings: { ...initial().holdings, ...parsed.holdings },
         history: [...parsed.history]
       }
     };
@@ -86,7 +89,7 @@
       return {
         ...initial(),
         ...s,
-        holdings: { BTC: 0, ETH: 0, SOL: 0, ...s.holdings },
+        holdings: { ...initial().holdings, ...s.holdings },
         history: [...s.history]
       };
     } catch (e) {
@@ -110,27 +113,22 @@
   }
 
   async function getPrices() {
-    const url = "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum,solana&vs_currencies=eur";
+    const url = "https://api.coingecko.com/api/v3/simple/price?ids=" + COIN_SYMBOLS.map(c => COINS[c].id).join(",") + "&vs_currencies=eur";
     const response = await fetch(url);
     if (!response.ok) throw new Error("Price service unavailable");
     const d = await response.json();
-    const p = {
-      BTC: Number(d.bitcoin?.eur),
-      ETH: Number(d.ethereum?.eur),
-      SOL: Number(d.solana?.eur)
-    };
-    if (Object.values(p).some(x => !Number.isFinite(x) || x <= 0))
-      throw new Error("Invalid price data");
+    const p = Object.fromEntries(COIN_SYMBOLS.map(c => [c, Number(d[COINS[c].id]?.eur)]));
+    if (Object.values(p).filter(x => Number.isFinite(x) && x > 0).length < 3) throw new Error("Insufficient valid market quotes");
     return p;
   }
 
   function pricesUsable(quote, updatedAt, now = Date.now()) {
-    return !!quote && ["BTC", "ETH", "SOL"].every(c => Number.isFinite(quote[c]) && quote[c] > 0) && Number.isFinite(updatedAt) && updatedAt <= now && now - updatedAt <= MAX_PRICE_AGE_MS;
+    return !!quote && COIN_SYMBOLS.some(c => Number.isFinite(quote[c]) && quote[c] > 0) && Number.isFinite(updatedAt) && updatedAt <= now && now - updatedAt <= MAX_PRICE_AGE_MS;
   }
 
   function exposure() {
     if (!prices) return 0;
-    return ["BTC", "ETH", "SOL"]
+    return COIN_SYMBOLS
       .reduce((sum, coin) => sum + (state.holdings[coin] || 0) * prices[coin], 0);
   }
 
@@ -224,7 +222,7 @@
       ? "Simulated buying paused: daily loss limit reached."
       : `Exposure ${eur(exposure())} / ${eur(MAX_EXPOSURE)}. Paper only.`);
 
-    const names = { BTC: "Bitcoin", ETH: "Ethereum", SOL: "Solana" };
+    const names = Object.fromEntries(COIN_SYMBOLS.map(c => [c, COINS[c].name]));
     if ($("assets")) $("assets").innerHTML = Object.entries(prices).map(([c, p]) =>
       `<div class="asset"><div><strong>${names[c]}</strong><div class="sub">${c}</div></div><strong>${eur(p)}</strong></div>`
     ).join("");
@@ -255,8 +253,8 @@
       const fresh = await getPrices();
       prices = fresh; pricesUpdatedAt = Date.now();
       if (!state.basisInitialized) {
-        state.costBasis = { BTC: 0, ETH: 0, SOL: 0, ...(state.costBasis || {}) };
-        for (const c of ["BTC", "ETH", "SOL"]) state.costBasis[c] = (state.holdings[c] || 0) * prices[c];
+        state.costBasis = { ...initial().costBasis, ...(state.costBasis || {}) };
+        for (const c of COIN_SYMBOLS) state.costBasis[c] = (state.holdings[c] || 0) * prices[c];
         state.basisInitialized = true;
       }
       render(); runAutonomousDecision(); save();
@@ -270,7 +268,7 @@
 
   // Shared order engine used by the live paper ticket and isolated tests.
   function processPaperOrder({ wallet, prices: quote, side, coin, amount, paused }) {
-    const supportedCoins = ["BTC", "ETH", "SOL"];
+    const supportedCoins = COIN_SYMBOLS;
     if (!wallet || !wallet.holdings || typeof wallet.holdings !== "object" ||
         Array.isArray(wallet.holdings) ||
         Object.keys(wallet.holdings).some(c => !supportedCoins.includes(c)) || !quote ||
@@ -278,7 +276,7 @@
         !supportedCoins.every(c =>
           Number.isFinite(wallet.holdings[c] ?? 0) && (wallet.holdings[c] ?? 0) >= 0 &&
           Number.isFinite(quote[c]) && quote[c] > 0) ||
-        !["BTC", "ETH", "SOL"].includes(coin) ||
+        !COIN_SYMBOLS.includes(coin) ||
         !["buy", "sell"].includes(side) ||
         !Number.isFinite(amount) || amount <= 0 || amount > MAX_ORDER) {
       return { ok: false, reason: "invalid-order" };
@@ -286,8 +284,8 @@
 
     const next = {
       ...wallet, savings: Number.isFinite(wallet.savings) ? wallet.savings : 0,
-      costBasis: { BTC: 0, ETH: 0, SOL: 0, ...(wallet.costBasis || {}) },
-      holdings: { BTC: 0, ETH: 0, SOL: 0, ...wallet.holdings },
+      costBasis: { ...initial().costBasis, ...(wallet.costBasis || {}) },
+      holdings: { ...initial().holdings, ...wallet.holdings },
       history: Array.isArray(wallet.history) ? [...wallet.history] : []
     };
     if (!next.basisInitialized) {
@@ -296,7 +294,7 @@
     }
     const fee = amount * FEE;
     const quantity = amount / quote[coin];
-    const currentExposure = ["BTC", "ETH", "SOL"]
+    const currentExposure = COIN_SYMBOLS
       .reduce((sum, c) => sum + (next.holdings[c] || 0) * quote[c], 0);
 
     if (side === "buy") {
@@ -364,7 +362,7 @@
     const quotes = Array.isArray(journal.quotes) ? journal.quotes : [];
     if (quotes.length < 4) { state.autoLastAction = "Waiting for 4 time-separated observations."; save(); return; }
     const hurdle = FEE * 2 + 0.002, choices = [];
-    for (const coin of ["BTC","ETH","SOL"]) {
+    for (const coin of COIN_SYMBOLS {
       const v=quotes.slice(-4).map(q=>Number(q[coin]));
       if(v.length!==4 || v.some(x=>!Number.isFinite(x)||x<=0)) continue;
       const r=v.slice(1).map((x,i)=>x/v[i]-1), avg=r.reduce((s,x)=>s+x,0)/r.length, held=state.holdings[coin]||0;
@@ -435,7 +433,7 @@
     ];
     for (const item of lossCases) {
       const calculated = dailyLimitState(baseline, item.equity, "test-day");
-      const wallet = { cash: 500, holdings: { BTC: 0, ETH: 0, SOL: 0 }, history: [] };
+      const wallet = { cash: 500, holdings: Object.fromEntries(COIN_SYMBOLS.map(c => [c, 0])), history: [] };
       const buy = processPaperOrder({ wallet, prices: testPrices, side: "buy", coin: "ETH", amount: 10, paused: calculated.paused });
       const sellWallet = { cash: 0, holdings: { BTC: 2, ETH: 0, SOL: 0 }, history: [] };
       const sell = processPaperOrder({ wallet: sellWallet, prices: testPrices, side: "sell", coin: "BTC", amount: 10, paused: calculated.paused });
@@ -465,14 +463,14 @@
       !arrayHoldingOrder.ok && arrayHoldingOrder.reason === "invalid-order");
 
     // Invalid / oversized order.
-    const base = { cash: 500, holdings: { BTC: 0, ETH: 0, SOL: 0 }, history: [] };
+    const base = { cash: 500, holdings: Object.fromEntries(COIN_SYMBOLS.map(c => [c, 0])), history: [] };
     const oversized = processPaperOrder({ wallet: base, prices: testPrices, side: "buy", coin: "BTC", amount: 50.01, paused: false });
     check("Order above €50 rejected", !oversized.ok && oversized.reason === "invalid-order");
 
     // Cash guard includes the fee.
-    const poor = { cash: 5, holdings: { BTC: 0, ETH: 0, SOL: 0 }, history: [] };
+    const poor = { cash: 5, holdings: Object.fromEntries(COIN_SYMBOLS.map(c => [c, 0])), history: [] };
     const noCash = processPaperOrder({ wallet: poor, prices: testPrices, side: "buy", coin: "BTC", amount: 10, paused: false });
-    check("Insufficient virtual cash rejected", !noCash.ok && noCash.reason === "insufficient-cash" && JSON.stringify(poor) === JSON.stringify({ cash: 5, holdings: { BTC: 0, ETH: 0, SOL: 0 }, history: [] }));
+    check("Insufficient virtual cash rejected", !noCash.ok && noCash.reason === "insufficient-cash" && JSON.stringify(poor) === JSON.stringify({ cash: 5, holdings: Object.fromEntries(COIN_SYMBOLS.map(c => [c, 0])), history: [] }));
 
     // Existing €245 exposure plus €10 order must exceed the €250 cap.
     const exposed = { cash: 500, holdings: { BTC: 24.5, ETH: 0, SOL: 0 }, history: [] };
@@ -489,27 +487,27 @@
     check("Successful order does not mutate source wallet",
       atCap.cash === 500 && atCap.holdings.BTC === 24 && atCap.history.length === 0);
 
-    const exactCash = { cash: 10.02, holdings: { BTC: 0, ETH: 0, SOL: 0 }, history: [] };
+    const exactCash = { cash: 10.02, holdings: Object.fromEntries(COIN_SYMBOLS.map(c => [c, 0])), history: [] };
     const exactCashOrder = processPaperOrder({ wallet: exactCash, prices: testPrices, side: "buy", coin: "BTC", amount: 10, paused: false });
     check("Cash exactly covering order plus fee accepted",
       exactCashOrder.ok && Math.abs(exactCashOrder.next.cash) < 1e-9);
-    const shortCash = { cash: 10.019, holdings: { BTC: 0, ETH: 0, SOL: 0 }, history: [] };
+    const shortCash = { cash: 10.019, holdings: Object.fromEntries(COIN_SYMBOLS.map(c => [c, 0])), history: [] };
     const shortCashOrder = processPaperOrder({ wallet: shortCash, prices: testPrices, side: "buy", coin: "BTC", amount: 10, paused: false });
     check("Cash short by €0.001 rejected",
       !shortCashOrder.ok && shortCashOrder.reason === "insufficient-cash");
 
     // Fee calculations and balances on successful isolated orders.
-    const feeWallet = { cash: 500, holdings: { BTC: 0, ETH: 0, SOL: 0 }, history: [] };
+    const feeWallet = { cash: 500, holdings: Object.fromEntries(COIN_SYMBOLS.map(c => [c, 0])), history: [] };
     const buy = processPaperOrder({ wallet: feeWallet, prices: testPrices, side: "buy", coin: "BTC", amount: 10, paused: false });
     const sell = buy.ok ? processPaperOrder({ wallet: buy.next, prices: testPrices, side: "sell", coin: "BTC", amount: 10, paused: false }) : { ok: false };
     check("Buy/sell fee math (0.2% each)", buy.ok && Math.abs(buy.fee - 0.02) < 1e-9 && Math.abs(buy.next.cash - 489.98) < 1e-9 && sell.ok && Math.abs(sell.fee - 0.02) < 1e-9 && Math.abs(sell.next.cash - 499.96) < 1e-9);
 
-    const empty = { cash: 500, holdings: { BTC: 0, ETH: 0, SOL: 0 }, history: [] };
+    const empty = { cash: 500, holdings: Object.fromEntries(COIN_SYMBOLS.map(c => [c, 0])), history: [] };
     const noCoins = processPaperOrder({ wallet: empty, prices: testPrices, side: "sell", coin: "BTC", amount: 10, paused: false });
-    check("Sell without sufficient coins rejected", !noCoins.ok && noCoins.reason === "insufficient-coins" && JSON.stringify(empty) === JSON.stringify({ cash: 500, holdings: { BTC: 0, ETH: 0, SOL: 0 }, history: [] }));
+    check("Sell without sufficient coins rejected", !noCoins.ok && noCoins.reason === "insufficient-coins" && JSON.stringify(empty) === JSON.stringify({ cash: 500, holdings: Object.fromEntries(COIN_SYMBOLS.map(c => [c, 0])), history: [] }));
 
     // Portfolio accounting: equity equals cash plus marked holdings, and fees reduce equity exactly.
-    const accountingWallet = { cash: 500, holdings: { BTC: 0, ETH: 0, SOL: 0 }, history: [] };
+    const accountingWallet = { cash: 500, holdings: Object.fromEntries(COIN_SYMBOLS.map(c => [c, 0])), history: [] };
     const equity = wallet => wallet.cash + Object.entries(wallet.holdings)
       .reduce((sum, [coin, qty]) => sum + qty * testPrices[coin], 0);
     const accountingBuy = processPaperOrder({ wallet: accountingWallet, prices: testPrices, side: "buy", coin: "BTC", amount: 10, paused: false });
@@ -531,21 +529,21 @@
     check("Order rejected with malformed quote", !invalidQuoteOrder.ok && invalidQuoteOrder.reason === "invalid-order");
 
     // Wallet integrity: malformed balances and holdings must never create NaN or negative state.
-    const badCash = { cash: NaN, holdings: { BTC: 0, ETH: 0, SOL: 0 }, history: [] };
+    const badCash = { cash: NaN, holdings: Object.fromEntries(COIN_SYMBOLS.map(c => [c, 0])), history: [] };
     const badCashOrder = processPaperOrder({ wallet: badCash, prices: testPrices, side: "buy", coin: "BTC", amount: 10, paused: false });
     check("Order rejected with invalid virtual cash", !badCashOrder.ok && badCashOrder.reason === "invalid-order");
     const negativeHolding = { cash: 500, holdings: { BTC: -1, ETH: 0, SOL: 0 }, history: [] };
     const negativeHoldingOrder = processPaperOrder({ wallet: negativeHolding, prices: testPrices, side: "sell", coin: "BTC", amount: 1, paused: false });
     check("Order rejected with negative holding", !negativeHoldingOrder.ok && negativeHoldingOrder.reason === "invalid-order");
-    const negativeCash = { cash: -1, holdings: { BTC: 0, ETH: 0, SOL: 0 }, history: [] };
+    const negativeCash = { cash: -1, holdings: Object.fromEntries(COIN_SYMBOLS.map(c => [c, 0])), history: [] };
     const negativeCashOrder = processPaperOrder({ wallet: negativeCash, prices: testPrices, side: "buy", coin: "BTC", amount: 1, paused: false });
     check("Order rejected with negative virtual cash", !negativeCashOrder.ok && negativeCashOrder.reason === "invalid-order");
 
     // Order boundaries: exact maximum and smallest positive amount are valid when wallet limits permit.
-    const maxWallet = { cash: 500, holdings: { BTC: 0, ETH: 0, SOL: 0 }, history: [] };
+    const maxWallet = { cash: 500, holdings: Object.fromEntries(COIN_SYMBOLS.map(c => [c, 0])), history: [] };
     const maxOrder = processPaperOrder({ wallet: maxWallet, prices: testPrices, side: "buy", coin: "BTC", amount: 50, paused: false });
     check("Exact €50 order accepted", maxOrder.ok && Math.abs(maxOrder.next.cash - 449.90) < 1e-9);
-    const tinyWallet = { cash: 500, holdings: { BTC: 0, ETH: 0, SOL: 0 }, history: [] };
+    const tinyWallet = { cash: 500, holdings: Object.fromEntries(COIN_SYMBOLS.map(c => [c, 0])), history: [] };
     const tinyOrder = processPaperOrder({ wallet: tinyWallet, prices: testPrices, side: "buy", coin: "BTC", amount: 0.01, paused: false });
     check("Small positive order accepted", tinyOrder.ok && Math.abs(tinyOrder.fee - 0.00002) < 1e-12);
     const zeroOrder = processPaperOrder({ wallet: tinyWallet, prices: testPrices, side: "buy", coin: "BTC", amount: 0, paused: false });
