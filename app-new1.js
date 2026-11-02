@@ -252,9 +252,12 @@
 
   // Shared order engine used by the live paper ticket and isolated tests.
   function processPaperOrder({ wallet, prices: quote, side, coin, amount, paused }) {
-    if (!wallet || !wallet.holdings || !quote ||
+    const supportedCoins = ["BTC", "ETH", "SOL"];
+    if (!wallet || !wallet.holdings || typeof wallet.holdings !== "object" ||
+        Array.isArray(wallet.holdings) ||
+        Object.keys(wallet.holdings).some(c => !supportedCoins.includes(c)) || !quote ||
         !Number.isFinite(wallet.cash) || wallet.cash < 0 ||
-        !["BTC", "ETH", "SOL"].every(c =>
+        !supportedCoins.every(c =>
           Number.isFinite(wallet.holdings[c] ?? 0) && (wallet.holdings[c] ?? 0) >= 0 &&
           Number.isFinite(quote[c]) && quote[c] > 0) ||
         !["BTC", "ETH", "SOL"].includes(coin) ||
@@ -401,6 +404,16 @@
     );
     check("New day resets loss baseline and pause",
       nextDay.day === "next-day" && nextDay.dayEquity === 500 && !nextDay.paused);
+
+    // Order engine must independently reject unsupported or malformed holding maps.
+    const unknownHolding = { cash: 500, holdings: { BTC: 0, ETH: 0, SOL: 0, DOGE: 1 }, history: [] };
+    const unknownHoldingOrder = processPaperOrder({ wallet: unknownHolding, prices: testPrices, side: "buy", coin: "BTC", amount: 10, paused: false });
+    check("Order rejects unsupported wallet holding",
+      !unknownHoldingOrder.ok && unknownHoldingOrder.reason === "invalid-order");
+    const arrayHoldings = { cash: 500, holdings: [], history: [] };
+    const arrayHoldingOrder = processPaperOrder({ wallet: arrayHoldings, prices: testPrices, side: "buy", coin: "BTC", amount: 10, paused: false });
+    check("Order rejects array instead of holding map",
+      !arrayHoldingOrder.ok && arrayHoldingOrder.reason === "invalid-order");
 
     // Invalid / oversized order.
     const base = { cash: 500, holdings: { BTC: 0, ETH: 0, SOL: 0 }, history: [] };
