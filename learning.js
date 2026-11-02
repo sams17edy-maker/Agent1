@@ -37,8 +37,8 @@
     }
     journal.sessions = journal.sessions.slice(-1440);
     const lastQuote = journal.quotes[journal.quotes.length - 1];
-    if (!lastQuote || data.time - lastQuote.time >= 5 * 60 * 1000) {
-      journal.quotes.push({ time: data.time, BTC: data.prices.BTC, ETH: data.prices.ETH, SOL: data.prices.SOL });
+    if (!lastQuote || data.time - lastQuote.time >= 5 * 1000) {
+      journal.quotes.push({ time: data.time, ...Object.fromEntries(COIN_SYMBOLS.map(c => [c, data.prices[c]])) });
       journal.quotes = journal.quotes.slice(-500);
     }
     journal.reviews += 1;
