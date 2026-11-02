@@ -368,30 +368,93 @@
   }
 
   function runAutonomousDecision() {
-    if (!state.autoTrading || !pricesUsable(prices, pricesUpdatedAt) || pricesUpdatedAt <= (state.autoLastQuoteAt || 0)) return;
-    state.autoLastQuoteAt = pricesUpdatedAt; checkDailyLimit();
-    let journal; try { journal = JSON.parse(localStorage.getItem("agent1-learning-journal-v1") || "{}"); } catch { journal = {}; }
-    const quotes = Array.isArray(journal.quotes) ? journal.quotes : [];
-    if (quotes.length < 4) { state.autoLastAction = "Waiting for 4 time-separated observations."; save(); return; }
-    const hurdle = FEE * 2 + 0.002, choices = [];
-    for (const coin of COIN_SYMBOLS) {
-      const v=quotes.slice(-4).map(q=>Number(q[coin]));
-      if(v.length!==4 || v.some(x=>!Number.isFinite(x)||x<=0)) continue;
-      const r=v.slice(1).map((x,i)=>x/v[i]-1), avg=r.reduce((s,x)=>s+x,0)/r.length, held=state.holdings[coin]||0;
-      if(!state.paused && held===0 && avg<=-hurdle && r[2]<0 && r[2+0] < 0 && r[2] > r[1]) choices.push({side:"buy",coin,score:-avg});
-      if(held>0 && avg>=hurdle && r[2]>0 && held*prices[coin]*(1-FEE)>(state.costBasis[coin]||Infinity)) choices.push({side:"sell",coin,score:avg});
+    if (!state.autoTrading) return;
+    if (!pricesUsable(prices, pricesUpdatedAt)) {
+      state.autoLastAction = "Paused: public prices missing, invalid, or stale.";
+      save(); return;
     }
-    if(!choices.length){state.autoLastAction="No trade: no confirmed signal or safeguards not met.";save();return;}
-    choices.sort((a,b)=>b.score-a.score); const pick=choices[0];
-    // Variable paper order size: €1–€50, scaled by signal strength and available safeguards.
-    const budget = Math.min(MAX_ORDER, Math.max(0, state.cash / (1 + FEE)),
+    if (pricesUpdatedAt <= (state.autoLastQuoteAt || 0)) return;
+    state.autoLastQuoteAt = pricesUpdatedAt;
+    checkDailyLimit();
+
+    let journal;
+    try { journal = JSON.parse(localStorage.getItem("agent1-learning-journal-v1") || "{}"); }
+    catch { journal = {}; }
+    const quotes = Array.isArray(journal.quotes) ? journal.quotes : [];
+    const usable = quotes.filter(q => q && Number.isFinite(q.time) &&
+      q.time <= Date.now() && COIN_SYMBOLS.every(c => Number.isFinite(Number(q[c])) && Number(q[c]) > 0));
+    if (usable.length < 4) {
+      state.autoLastAction = "Learning: collecting 4 valid observations before evaluating signals.";
+      save(); return;
+    }
+
+    // Adaptive paper-only threshold: use recent realized outcomes, but never lower
+    // the minimum round-trip fee/slippage buffer below the fixed safety floor.
+    const recent = state.history.slice(0, 20).filter(t => Number.isFinite(t.realizedNet));
+    const wins = recent.filter(t => t.realizedNet > 0).length;
+    const winRate = recent.length ? wins / recent.length : 0.5;
+    const hurdle = FEE * 2 + 0.002 + (recent.length >= 5 && winRate < 0.4 ? 0.003 : 0);
+    const choices = [];
+    const sample = usable.slice(-4);
+
+    for (const coin of COIN_SYMBOLS) {
+      const v = sample.map(q => Number(q[coin]));
+      if (v.length !== 4 || v.some(x => !Number.isFinite(x) || x <= 0)) continue;
+      const returns = v.slice(1).map((x, i) => x / v[i] - 1);
+      const avg = returns.reduce((sum, x) => sum + x, 0) / returns.length;
+      const held = state.holdings[coin] || 0;
+      const latest = returns[2], prior = returns[1];
+      const estimatedRoundTripCost = FEE * 2 + 0.002;
+
+      if (!state.paused && held === 0 && avg <= -hurdle &&
+          latest < 0 && latest > prior) {
+        choices.push({ side: "buy", coin, score: -avg, reason: "pullback easing" });
+      }
+      if (held > 0 && latest > 0 && avg >= hurdle &&
+          held * prices[coin] * (1 - FEE) > (state.costBasis[coin] || Infinity) &&
+          latest > estimatedRoundTripCost) {
+        choices.push({ side: "sell", coin, score: avg, reason: "positive move clears estimated costs" });
+      }
+    }
+
+    if (!choices.length) {
+      const reasons = [];
+      if (state.paused) reasons.push("daily-loss safeguard active");
+      if (exposure() >= MAX_EXPOSURE) reasons.push("exposure cap reached");
+      if (state.cash < 1 + FEE) reasons.push("insufficient virtual cash");
+      state.autoLastAction = reasons.length
+        ? "No trade: " + reasons.join("; ") + "."
+        : "No trade: recent movement did not clear the adaptive fee-aware signal.";
+      save(); return;
+    }
+
+    choices.sort((a, b) => b.score - a.score);
+    const pick = choices[0];
+    const budget = Math.min(MAX_ORDER,
+      Math.max(0, state.cash / (1 + FEE)),
       Math.max(0, MAX_EXPOSURE - exposure()));
     const confidence = Math.max(0, Math.min(1, (pick.score - hurdle) / 0.02));
     const amount = Math.min(budget, Math.max(1, Math.round(1 + confidence * (MAX_ORDER - 1))));
-    if (amount < 1) { state.autoLastAction="Blocked: insufficient available paper funds."; save(); return; }
-    const result=processPaperOrder({wallet:state,prices,side:pick.side,coin:pick.coin,amount,paused:state.paused});
-    if(result.ok){state={...state,...result.next};state.autoLastAction="Auto paper "+pick.side.toUpperCase()+" "+pick.coin+" · "+eur(amount)+" · fee "+eur(result.fee)+(result.savingsTransfer?" · savings "+eur(result.savingsTransfer):"");save();render();}
-    else {state.autoLastAction="Blocked by safeguard: "+result.reason;save();}
+    if (amount < 1) {
+      state.autoLastAction = "Blocked: insufficient available paper funds or exposure room.";
+      save(); return;
+    }
+
+    const result = processPaperOrder({
+      wallet: state, prices, side: pick.side, coin: pick.coin,
+      amount, paused: state.paused
+    });
+    if (result.ok) {
+      state = { ...state, ...result.next };
+      state.autoLastAction = "Auto paper " + pick.side.toUpperCase() + " " + pick.coin +
+        " · " + eur(amount) + " · fee " + eur(result.fee) +
+        " · signal: " + pick.reason +
+        (result.savingsTransfer ? " · savings " + eur(result.savingsTransfer) : "");
+      save(); render();
+    } else {
+      state.autoLastAction = "Blocked by safeguard: " + result.reason;
+      save();
+    }
   }
 
   function report() {
