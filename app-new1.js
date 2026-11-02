@@ -116,6 +116,51 @@
     main.insertBefore(section,main.firstChild); renderSpeedMonitor();
   }
 
+  function ensurePerformanceMonitor() {
+    if ($("performanceMonitor")) return;
+    const main = document.querySelector("main"); if (!main) return;
+    const section = document.createElement("section");
+    section.className = "panel wide";
+    section.innerHTML = '<div class="row"><strong>Trade performance</strong><span class="pill">PAPER ACCOUNTING</span></div><p class="sub">Profit and loss includes simulated fees. Open-position results are estimates using the latest public reference quotes.</p><div id="performanceMonitor" class="grid"></div>';
+    const speed = main.querySelector("#speedMonitor")?.closest("section");
+    if (speed?.nextSibling) main.insertBefore(section, speed.nextSibling);
+    else if (speed) main.appendChild(section);
+    else main.insertBefore(section, main.firstChild);
+  }
+
+  function performanceMetrics() {
+    const realized = state.history.reduce((sum, order) =>
+      sum + (order.side === "SELL" && Number.isFinite(order.realizedNet) ? order.realizedNet : 0), 0);
+    const fees = state.history.reduce((sum, order) => sum + (Number(order.fee) || 0), 0);
+    const transferred = state.history.reduce((sum, order) =>
+      sum + (Number.isFinite(order.savingsTransfer) ? order.savingsTransfer : 0), 0);
+    let unrealized = 0;
+    for (const coin of COIN_SYMBOLS) {
+      const quantity = state.holdings[coin] || 0;
+      if (quantity > 0 && Number.isFinite(prices?.[coin]) && Number.isFinite(state.costBasis?.[coin])) {
+        unrealized += quantity * prices[coin] - state.costBasis[coin];
+      }
+    }
+    return { realized, unrealized, net: realized + unrealized, fees, transferred,
+      savings: Number(state.savings) || 0, cash: Number(state.cash) || 0, value: total() };
+  }
+
+  function renderPerformanceMonitor() {
+    const el = $("performanceMonitor"); if (!el || !prices) return;
+    const m = performanceMetrics();
+    const item = (label, value) => '<div class="stat"><span class="label">' + label + '</span><strong>' + value + '</strong></div>';
+    el.innerHTML = [
+      item("Realised net P/L", eur(m.realized)),
+      item("Open-position P/L", (m.unrealized >= 0 ? "+" : "") + eur(m.unrealized)),
+      item("Total net P/L", (m.net >= 0 ? "+" : "") + eur(m.net)),
+      item("Portfolio value", eur(m.value)),
+      item("Simulated fees paid", eur(m.fees)),
+      item("Profit transferred to savings", eur(m.transferred)),
+      item("Virtual savings balance", eur(m.savings)),
+      item("Trading cash", eur(m.cash))
+    ].join("");
+  }
+
   function save() {
     try { localStorage.setItem(KEY, JSON.stringify(state)); }
     catch (e) { console.warn("Local save failed", e); }
@@ -217,6 +262,7 @@
 
     const value = total();
     const profit = value - START;
+    renderPerformanceMonitor();
     window.AgentLearning?.observe({
       time: Date.now(), equity: value, cash: state.cash,
       exposure: exposure(), orderCount: state.history.length,
@@ -760,6 +806,7 @@
 
   function start() {
     ensureSpeedMonitor();
+    ensurePerformanceMonitor();
     $("refreshBtn")?.addEventListener("click", refresh);
     $("orderBtn")?.addEventListener("click", trade);
     $("autoTrading")?.addEventListener("change", e => {
