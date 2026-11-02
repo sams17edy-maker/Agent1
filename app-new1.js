@@ -77,23 +77,30 @@
     };
   }
 
+  let loadWarning = "";
+  function preserveUnreadableSave(raw, reason) {
+    try {
+      if (raw !== null) localStorage.setItem(KEY + "-recovery", JSON.stringify({ savedAt: Date.now(), reason, raw }));
+    } catch (e) { console.error("Could not preserve recovery copy of paper wallet.", e); }
+    loadWarning = "⚠️ Saved paper data could not be validated. Recovery copy attempted. Do not place orders or reset; export/contact support first.";
+  }
+
   function load() {
     try {
       const raw = localStorage.getItem(KEY);
       if (raw === null) return initial();
       const s = JSON.parse(raw);
       if (!validSavedState(s)) {
-        console.warn("Saved paper portfolio is invalid; safely starting a fresh virtual portfolio.");
+        preserveUnreadableSave(raw, "invalid-state");
+        console.error("Saved paper portfolio failed validation; original payload preserved for recovery.");
         return initial();
       }
-      return {
-        ...initial(),
-        ...s,
-        holdings: { ...initial().holdings, ...s.holdings },
-        history: [...s.history]
-      };
+      return { ...initial(), ...s, holdings: { ...initial().holdings, ...s.holdings }, history: [...s.history] };
     } catch (e) {
-      console.warn("Saved paper portfolio could not be read; safely starting fresh.", e);
+      let raw = null;
+      try { raw = localStorage.getItem(KEY); } catch {}
+      preserveUnreadableSave(raw, "read-or-parse-error");
+      console.error("Saved paper portfolio could not be read; recovery copy attempted.", e);
       return initial();
     }
   }
@@ -287,7 +294,7 @@
     say("orders", state.history.length);
     say("day", "Active · until manually stopped");
     say("lastRun", new Date().toLocaleTimeString());
-    say("marketStatus", "Public reference prices updated. Paper mode only.");
+    say("marketStatus", loadWarning || "Public reference prices updated. Paper mode only.");
     say("orderMessage", state.paused
       ? "Simulated buying paused: daily loss limit reached."
       : `Exposure ${eur(exposure())} / ${eur(MAX_EXPOSURE)}. Paper only.`);
