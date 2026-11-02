@@ -18,6 +18,7 @@
     cash: START,
     holdings: { BTC: 0, ETH: 0, SOL: 0 },
     history: [],
+    portfolioHistory: [{ time: Date.now(), value: START }],
     started: Date.now(),
     day: new Date().toDateString(),
     dayEquity: START,
@@ -134,21 +135,60 @@
       state.paused = true;
   }
 
+  function recordPortfolioSnapshot() {
+    if (!prices) return;
+    const now = Date.now();
+    const value = total();
+    if (!Array.isArray(state.portfolioHistory)) state.portfolioHistory = [];
+    const last = state.portfolioHistory[state.portfolioHistory.length - 1];
+    if (!last || now - last.time >= 60000) {
+      state.portfolioHistory.push({ time: now, value });
+      if (state.portfolioHistory.length > 31) state.portfolioHistory = state.portfolioHistory.slice(-31);
+      save();
+    }
+  }
+
+  function drawPortfolioHistory() {
+    const canvas = $("chart");
+    if (!canvas || !Array.isArray(state.portfolioHistory) || !state.portfolioHistory.length) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    const w = canvas.width, h = canvas.height, pad = 22;
+    ctx.clearRect(0, 0, w, h);
+    const points = state.portfolioHistory.slice(-31);
+    const vals = points.map(p => p.value);
+    const lo = Math.min(...vals, START) - 1, hi = Math.max(...vals, START) + 1;
+    ctx.strokeStyle = "#26364d"; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(pad, h-pad); ctx.lineTo(w-pad, h-pad); ctx.stroke();
+    ctx.strokeStyle = "#43d39e"; ctx.lineWidth = 3; ctx.beginPath();
+    points.forEach((p, i) => {
+      const x = pad + (points.length <= 1 ? 0 : i * (w - 2*pad) / (points.length - 1));
+      const y = h-pad - ((p.value-lo)/(hi-lo))*(h-2*pad);
+      if (i === 0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+    });
+    ctx.stroke();
+    ctx.fillStyle = "#9aabc2"; ctx.font = "12px system-ui";
+    ctx.fillText(`${points.length} minute snapshots`, pad, 14);
+    ctx.fillText(eur(points[points.length-1].value), w-pad-90, 14);
+  }
+
   function render() {
     if (!prices) return;
     checkDailyLimit();
+    recordPortfolioSnapshot();
 
     const value = total();
     const profit = value - START;
-    const day = Math.min(30,
-      Math.floor((Date.now() - state.started) / 86400000) + 1);
+    const elapsedMinutes = Math.min(30,
+      Math.floor((Date.now() - state.started) / 60000));
 
     say("equity", eur(value));
     say("pnl", `${profit >= 0 ? "+" : ""}${eur(profit)} (${(profit / START * 100).toFixed(2)}%)`);
     say("cash", eur(state.cash));
     say("positions", Object.values(state.holdings).filter(q => q > 0).length);
     say("orders", state.history.length);
-    say("day", `${day} / 30`);
+    say("day", `${elapsedMinutes} / 30 min`);
+    if (elapsedMinutes >= 30) say("marketStatus", "30-minute paper experiment complete. No real orders were placed.");
     say("lastRun", new Date().toLocaleTimeString());
     say("marketStatus", "Public reference prices updated. Paper mode only.");
     say("orderMessage", state.paused
@@ -167,6 +207,7 @@
         : '<div class="empty">No open positions.</div>';
     }
 
+    drawPortfolioHistory();
     if ($("history")) {
       $("history").innerHTML = state.history.length
         ? `<table><thead><tr><th>Time</th><th>Action</th><th>Coin</th><th>Value</th><th>Fee</th></tr></thead><tbody>${
