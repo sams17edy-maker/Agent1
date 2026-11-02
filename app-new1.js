@@ -368,6 +368,7 @@
   }
 
   function runAutonomousDecision() {
+    const decisionStarted = performance.now();
     if (!state.autoTrading) return;
     if (!pricesUsable(prices, pricesUpdatedAt)) {
       state.autoLastAction = "Paused: public prices missing, invalid, or stale.";
@@ -381,78 +382,72 @@
     try { journal = JSON.parse(localStorage.getItem("agent1-learning-journal-v1") || "{}"); }
     catch { journal = {}; }
     const quotes = Array.isArray(journal.quotes) ? journal.quotes : [];
-    const usable = quotes.filter(q => q && Number.isFinite(q.time) &&
-      q.time <= Date.now() && COIN_SYMBOLS.every(c => Number.isFinite(Number(q[c])) && Number(q[c]) > 0));
-    if (usable.length < 4) {
-      state.autoLastAction = "Learning: collecting 4 valid observations before evaluating signals.";
+    const valid = quotes.filter(q => q && Number.isFinite(q.time) && q.time <= Date.now() &&
+      COIN_SYMBOLS.some(c => Number.isFinite(Number(q[c])) && Number(q[c]) > 0));
+    const previous = valid.length ? valid[valid.length - 1] : null;
+    const prior = valid.length > 1 ? valid[valid.length - 2] : null;
+    if (!previous) {
+      state.autoLastAction = "Waiting for first valid observation.";
       save(); return;
     }
 
-    // Adaptive paper-only threshold: use recent realized outcomes, but never lower
-    // the minimum round-trip fee/slippage buffer below the fixed safety floor.
+    // Fast path: compare the newest valid snapshot with the immediately prior
+    // distinct observation. No multi-minute averaging delay.
     const recent = state.history.slice(0, 20).filter(t => Number.isFinite(t.realizedNet));
-    const wins = recent.filter(t => t.realizedNet > 0).length;
-    const winRate = recent.length ? wins / recent.length : 0.5;
+    const winRate = recent.length ? recent.filter(t => t.realizedNet > 0).length / recent.length : 0.5;
     const hurdle = FEE * 2 + 0.002 + (recent.length >= 5 && winRate < 0.4 ? 0.003 : 0);
     const choices = [];
-    const sample = usable.slice(-4);
-
     for (const coin of COIN_SYMBOLS) {
-      const v = sample.map(q => Number(q[coin]));
-      if (v.length !== 4 || v.some(x => !Number.isFinite(x) || x <= 0)) continue;
-      const returns = v.slice(1).map((x, i) => x / v[i] - 1);
-      const avg = returns.reduce((sum, x) => sum + x, 0) / returns.length;
+      const nowPrice = Number(previous[coin]);
+      const oldPrice = prior ? Number(prior[coin]) : NaN;
+      if (!Number.isFinite(nowPrice) || nowPrice <= 0) continue;
       const held = state.holdings[coin] || 0;
-      const latest = returns[2], prior = returns[1];
-      const estimatedRoundTripCost = FEE * 2 + 0.002;
+      const change = Number.isFinite(oldPrice) && oldPrice > 0 ? nowPrice / oldPrice - 1 : 0;
+      const marketPrice = prices[coin];
+      if (!Number.isFinite(marketPrice) || marketPrice <= 0) continue;
 
-      if (!state.paused && held === 0 && avg <= -hurdle &&
-          latest < 0 && latest > prior) {
-        choices.push({ side: "buy", coin, score: -avg, reason: "pullback easing" });
+      if (prior && !state.paused && held === 0 && change <= -hurdle) {
+        choices.push({ side: "buy", coin, score: -change, reason: "fresh pullback exceeds fee-aware hurdle" });
       }
-      if (held > 0 && latest > 0 && avg >= hurdle &&
-          held * prices[coin] * (1 - FEE) > (state.costBasis[coin] || Infinity) &&
-          latest > estimatedRoundTripCost) {
-        choices.push({ side: "sell", coin, score: avg, reason: "positive move clears estimated costs" });
+      const netValue = held * marketPrice * (1 - FEE);
+      if (held > 0 && change >= hurdle && netValue > (state.costBasis[coin] || Infinity)) {
+        choices.push({ side: "sell", coin, score: change, reason: "fresh rise clears estimated fees and cost basis" });
       }
     }
 
+    const latency = Math.max(0, performance.now() - decisionStarted).toFixed(1);
     if (!choices.length) {
       const reasons = [];
+      if (!prior) reasons.push("need a second distinct observation");
       if (state.paused) reasons.push("daily-loss safeguard active");
       if (exposure() >= MAX_EXPOSURE) reasons.push("exposure cap reached");
       if (state.cash < 1 + FEE) reasons.push("insufficient virtual cash");
-      state.autoLastAction = reasons.length
-        ? "No trade: " + reasons.join("; ") + "."
-        : "No trade: recent movement did not clear the adaptive fee-aware signal.";
+      state.autoLastAction = "Fast check (" + latency + " ms): " +
+        (reasons.length ? reasons.join("; ") : "no fresh signal cleared the fee-aware threshold") + ".";
       save(); return;
     }
 
-    choices.sort((a, b) => b.score - a.score);
+    choices.sort((x, y) => y.score - x.score);
     const pick = choices[0];
-    const budget = Math.min(MAX_ORDER,
-      Math.max(0, state.cash / (1 + FEE)),
+    const budget = Math.min(MAX_ORDER, Math.max(0, state.cash / (1 + FEE)),
       Math.max(0, MAX_EXPOSURE - exposure()));
     const confidence = Math.max(0, Math.min(1, (pick.score - hurdle) / 0.02));
     const amount = Math.min(budget, Math.max(1, Math.round(1 + confidence * (MAX_ORDER - 1))));
     if (amount < 1) {
-      state.autoLastAction = "Blocked: insufficient available paper funds or exposure room.";
+      state.autoLastAction = "Fast check (" + latency + " ms): blocked by available paper funds/exposure.";
       save(); return;
     }
-
-    const result = processPaperOrder({
-      wallet: state, prices, side: pick.side, coin: pick.coin,
-      amount, paused: state.paused
-    });
+    const result = processPaperOrder({ wallet: state, prices, side: pick.side,
+      coin: pick.coin, amount, paused: state.paused });
     if (result.ok) {
       state = { ...state, ...result.next };
-      state.autoLastAction = "Auto paper " + pick.side.toUpperCase() + " " + pick.coin +
-        " · " + eur(amount) + " · fee " + eur(result.fee) +
-        " · signal: " + pick.reason +
+      state.autoLastAction = "Fast auto paper " + pick.side.toUpperCase() + " " + pick.coin +
+        " · " + eur(amount) + " · fee " + eur(result.fee) + " · decision " + latency + " ms" +
+        " · " + pick.reason +
         (result.savingsTransfer ? " · savings " + eur(result.savingsTransfer) : "");
       save(); render();
     } else {
-      state.autoLastAction = "Blocked by safeguard: " + result.reason;
+      state.autoLastAction = "Fast check (" + latency + " ms): safeguard blocked " + result.reason + ".";
       save();
     }
   }
