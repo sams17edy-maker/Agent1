@@ -30,6 +30,7 @@
     // Allow up to 2 hours of device-clock skew; preserve original transaction timestamps.
     const latestAllowedTime = now + 2 * 60 * 60 * 1000;
     if (!s || typeof s !== "object" || Array.isArray(s) || !Number.isFinite(now)) return false;
+    const supportedCoins = COIN_SYMBOLS;
     if (!Number.isFinite(s.cash) || s.cash < 0) return false;
     if (s.savings !== undefined && (!Number.isFinite(s.savings) || s.savings < 0)) return false;
     if (s.basisInitialized !== undefined && typeof s.basisInitialized !== "boolean") return false;
@@ -42,7 +43,6 @@
          Object.keys(s.costBasis).some(c => !supportedCoins.includes(c)) ||
          !supportedCoins.every(c => Number.isFinite(s.costBasis[c] ?? 0) && (s.costBasis[c] ?? 0) >= 0))) return false;
     if (!s.holdings || typeof s.holdings !== "object" || Array.isArray(s.holdings)) return false;
-    const supportedCoins = COIN_SYMBOLS;
     if (Object.keys(s.holdings).some(c => !supportedCoins.includes(c))) return false;
     if (!supportedCoins.every(c =>
       Number.isFinite(s.holdings[c] ?? 0) && (s.holdings[c] ?? 0) >= 0)) return false;
