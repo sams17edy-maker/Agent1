@@ -3,8 +3,10 @@
   "use strict";
 
   const START = 500;
-  const COINS = Object.freeze({BTC: { name: "Bitcoin", id: "bitcoin" }, ETH: { name: "Ethereum", id: "ethereum" }, SOL: { name: "Solana", id: "solana" }, XRP: { name: "XRP", id: "ripple" }, BNB: { name: "BNB", id: "binancecoin" }, ADA: { name: "Cardano", id: "cardano" }, DOGE: { name: "Dogecoin", id: "dogecoin" }, LINK: { name: "Chainlink", id: "chainlink" }, AVAX: { name: "Avalanche", id: "avalanche-2" }, DOT: { name: "Polkadot", id: "polkadot" }, LTC: { name: "Litecoin", id: "litecoin" }, BCH: { name: "Bitcoin Cash", id: "bitcoin-cash" }, XLM: { name: "Stellar", id: "stellar" }, UNI: { name: "Uniswap", id: "uniswap" }, ATOM: { name: "Cosmos", id: "cosmos" }, NEAR: { name: "NEAR Protocol", id: "near" }, ETC: { name: "Ethereum Classic", id: "ethereum-classic" }, APT: { name: "Aptos", id: "aptos" }, ARB: { name: "Arbitrum", id: "arbitrum" }, OP: { name: "Optimism", id: "optimism" }});
+  const COINS = Object.freeze({BTC: { name: "Bitcoin", id: "bitcoin" }, ETH: { name: "Ethereum", id: "ethereum" }, SOL: { name: "Solana", id: "solana" }, XRP: { name: "XRP", id: "ripple" }, PEPE: { name: "Pepe", id: "pepe" }, ADA: { name: "Cardano", id: "cardano" }, DOGE: { name: "Dogecoin", id: "dogecoin" }, LINK: { name: "Chainlink", id: "chainlink" }, AVAX: { name: "Avalanche", id: "avalanche-2" }, DOT: { name: "Polkadot", id: "polkadot" }, LTC: { name: "Litecoin", id: "litecoin" }, BCH: { name: "Bitcoin Cash", id: "bitcoin-cash" }, XLM: { name: "Stellar", id: "stellar" }, UNI: { name: "Uniswap", id: "uniswap" }, ATOM: { name: "Cosmos", id: "cosmos" }, NEAR: { name: "NEAR Protocol", id: "near" }, ETC: { name: "Ethereum Classic", id: "ethereum-classic" }, APT: { name: "Aptos", id: "aptos" }, ARB: { name: "Arbitrum", id: "arbitrum" }, OP: { name: "Optimism", id: "optimism" }});
   const COIN_SYMBOLS = Object.keys(COINS);
+  // Keep legacy BNB records readable without listing or trading BNB in the new market set.
+  const SUPPORTED_COINS = [...COIN_SYMBOLS, "BNB"];
 
   const FEE = 0.002;
   const MAX_ORDER = 50;
@@ -19,8 +21,8 @@
   }).format(Number(n) || 0);
 
   const initial = () => ({
-    cash: START, savings: 0, holdings: Object.fromEntries(COIN_SYMBOLS.map(c => [c, 0])),
-    costBasis: Object.fromEntries(COIN_SYMBOLS.map(c => [c, 0])), basisInitialized: false,
+    cash: START, savings: 0, holdings: Object.fromEntries(SUPPORTED_COINS.map(c => [c, 0])),
+    costBasis: Object.fromEntries(SUPPORTED_COINS.map(c => [c, 0])), basisInitialized: false,
     autoTrading: false, autoLastQuoteAt: 0, autoLastAction: "Not started",
     history: [], portfolioHistory: [{ time: Date.now(), value: START }],
     started: Date.now(), day: new Date().toDateString(), dayEquity: START, paused: false
@@ -30,7 +32,7 @@
     // Allow up to 2 hours of device-clock skew; preserve original transaction timestamps.
     const latestAllowedTime = now + 2 * 60 * 60 * 1000;
     if (!s || typeof s !== "object" || Array.isArray(s) || !Number.isFinite(now)) return false;
-    const supportedCoins = COIN_SYMBOLS;
+    const supportedCoins = SUPPORTED_COINS;
     if (!Number.isFinite(s.cash) || s.cash < 0) return false;
     if (s.savings !== undefined && (!Number.isFinite(s.savings) || s.savings < 0)) return false;
     if (s.basisInitialized !== undefined && typeof s.basisInitialized !== "boolean") return false;
@@ -162,7 +164,7 @@
     const transferred = state.history.reduce((sum, order) =>
       sum + (Number.isFinite(order.savingsTransfer) ? order.savingsTransfer : 0), 0);
     let unrealized = 0;
-    for (const coin of COIN_SYMBOLS) {
+    for (const coin of SUPPORTED_COINS) {
       const quantity = state.holdings[coin] || 0;
       if (quantity > 0 && Number.isFinite(prices?.[coin]) && Number.isFinite(state.costBasis?.[coin])) {
         unrealized += quantity * prices[coin] - state.costBasis[coin];
@@ -217,11 +219,11 @@
 
   // Crypto.com Exchange public spot markets only. Prefer direct EUR pairs;
   // convert USDT pairs using Crypto.com's own EUR_USDT spot quote.
-  // BNB has no supported spot pair in the current Exchange instrument catalog.
+  // PEPE/USD and PEPE/USDT are listed; PEPE/EUR was delisted, so use USDT converted to EUR.
   const CRYPTOCOM_SPOT_PAIRS = Object.freeze({
     BTC: ["BTC_EUR", "BTC_USDT"], ETH: ["ETH_EUR", "ETH_USDT"],
     SOL: ["SOL_EUR", "SOL_USDT"], XRP: ["XRP_EUR", "XRP_USDT"],
-    BNB: [], ADA: ["ADA_EUR", "ADA_USDT"], DOGE: ["DOGE_EUR", "DOGE_USDT"],
+    PEPE: ["PEPE_USDT"], ADA: ["ADA_EUR", "ADA_USDT"], DOGE: ["DOGE_EUR", "DOGE_USDT"],
     LINK: ["LINK_USDT"], AVAX: ["AVAX_USDT"], DOT: ["DOT_USDT"],
     LTC: ["LTC_USDT"], BCH: ["BCH_USDT"], XLM: ["XLM_USDT"],
     UNI: ["UNI_USDT"], ATOM: ["ATOM_USDT"], NEAR: ["NEAR_USDT"],
