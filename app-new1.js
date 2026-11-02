@@ -3,7 +3,7 @@
   "use strict";
 
   const START = 500;
-  const COINS = Object.freeze({BTC: { name: "Bitcoin", id: "bitcoin" }, ETH: { name: "Ethereum", id: "ethereum" }, SOL: { name: "Solana", id: "solana" }, XRP: { name: "XRP", id: "ripple" }, PEPE: { name: "Pepe", id: "pepe" }, ADA: { name: "Cardano", id: "cardano" }, DOGE: { name: "Dogecoin", id: "dogecoin" }, LINK: { name: "Chainlink", id: "chainlink" }, AVAX: { name: "Avalanche", id: "avalanche-2" }, DOT: { name: "Polkadot", id: "polkadot" }, LTC: { name: "Litecoin", id: "litecoin" }, BCH: { name: "Bitcoin Cash", id: "bitcoin-cash" }, XLM: { name: "Stellar", id: "stellar" }, UNI: { name: "Uniswap", id: "uniswap" }, ATOM: { name: "Cosmos", id: "cosmos" }, NEAR: { name: "NEAR Protocol", id: "near" }, ETC: { name: "Ethereum Classic", id: "ethereum-classic" }, APT: { name: "Aptos", id: "aptos" }, ARB: { name: "Arbitrum", id: "arbitrum" }, OP: { name: "Optimism", id: "optimism" }});
+  const COINS = Object.freeze({BTC: { name: "Bitcoin", id: "bitcoin" }, ETH: { name: "Ethereum", id: "ethereum" }, SOL: { name: "Solana", id: "solana" }, XRP: { name: "XRP", id: "ripple" }, PEPE: { name: "Pepe", id: "pepe" }, ADA: { name: "Cardano", id: "cardano" }, DOGE: { name: "Dogecoin", id: "dogecoin" }, LINK: { name: "Chainlink", id: "chainlink" }, AVAX: { name: "Avalanche", id: "avalanche-2" }, DOT: { name: "Polkadot", id: "polkadot" }, LTC: { name: "Litecoin", id: "litecoin" }, BCH: { name: "Bitcoin Cash", id: "bitcoin-cash" }, XLM: { name: "Stellar", id: "stellar" }, UNI: { name: "Uniswap", id: "uniswap" }, ATOM: { name: "Cosmos", id: "cosmos" }, NEAR: { name: "NEAR Protocol", id: "near" }, ETC: { name: "Ethereum Classic", id: "ethereum-classic" }, APT: { name: "Aptos", id: "aptos" }, ARB: { name: "Arbitrum", id: "arbitrum" }, OP: { name: "Optimism", id: "optimism" }, COQ: { name: "Coq Inu", id: "coq-inu" }, CRO: { name: "Cronos", id: "crypto-com-chain" }});
   const COIN_SYMBOLS = Object.keys(COINS);
   // Keep legacy BNB records readable without listing or trading BNB in the new market set.
   const SUPPORTED_COINS = [...COIN_SYMBOLS, "BNB"];
@@ -227,7 +227,8 @@
     LINK: ["LINK_USDT"], AVAX: ["AVAX_USDT"], DOT: ["DOT_USDT"],
     LTC: ["LTC_USDT"], BCH: ["BCH_USDT"], XLM: ["XLM_USDT"],
     UNI: ["UNI_USDT"], ATOM: ["ATOM_USDT"], NEAR: ["NEAR_USDT"],
-    ETC: ["ETC_USDT"], APT: ["APT_USDT"], ARB: ["ARB_USDT"], OP: ["OP_USDT"]
+    ETC: ["ETC_USDT"], APT: ["APT_USDT"], ARB: ["ARB_USDT"], OP: ["OP_USDT"],
+    COQ: ["COQ_USD"], CRO: ["CRO_USDT"]
   });
 
   async function getPrices() {
@@ -249,6 +250,11 @@
       const fxUpdatedAt = Number(fxTicker?.t);
       const fxUsable = Number.isFinite(eurUsdt) && eurUsdt > 0 &&
         Number.isFinite(fxUpdatedAt) && fxUpdatedAt > 0;
+      const usdFxTicker = tickers.get("EUR_USD");
+      const eurUsd = Number(usdFxTicker?.a);
+      const usdFxUpdatedAt = Number(usdFxTicker?.t);
+      const usdFxUsable = Number.isFinite(eurUsd) && eurUsd > 0 &&
+        Number.isFinite(usdFxUpdatedAt) && usdFxUpdatedAt > 0;
       const p = {}, timestamps = {};
       for (const coin of COIN_SYMBOLS) {
         for (const pair of (CRYPTOCOM_SPOT_PAIRS[coin] || [])) {
@@ -265,6 +271,11 @@
           if (pair.endsWith("_USDT") && fxUsable) {
             p[coin] = value / eurUsdt;
             timestamps[coin] = Math.min(updatedAt, fxUpdatedAt);
+            break;
+          }
+          if (pair.endsWith("_USD") && usdFxUsable) {
+            p[coin] = value / eurUsd;
+            timestamps[coin] = Math.min(updatedAt, usdFxUpdatedAt);
             break;
           }
         }
