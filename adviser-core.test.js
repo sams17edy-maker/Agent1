@@ -1,0 +1,9 @@
+const test=require("node:test"),assert=require("node:assert/strict"),core=require("./adviser-core.js");
+test("parses last trade separately from ask",()=>{const m=core.parseTicker({i:"BTC_USDT",l:"65000",a:"65010",b:"64990"});assert.equal(m.last,65000);assert.equal(m.ask,65010);});
+test("rejects malformed pair or missing last trade",()=>{assert.equal(core.parseTicker({i:"BTCUSDT",l:"2"}),null);assert.equal(core.parseTicker({i:"BTC_USDT",a:"2"}),null);});
+test("EUR conversion and unsupported quote handling",()=>{assert.equal(core.eurRate("EUR",{}),1);assert.equal(core.eurRate("USDT",{eurUsdt:1.1}),1/1.1);assert.ok(Number.isNaN(core.eurRate("BTC",{})));});
+test("deduplicates samples for 60s and caps history",()=>{const h=new Map();core.addSample(h,"X",10,1000);core.addSample(h,"X",10,2000);assert.equal(h.get("X").length,1);core.addSample(h,"X",10,61000);assert.equal(h.get("X").length,2);for(let i=1;i<30;i++)core.addSample(h,"X",10+i,70000+i);assert.equal(h.get("X").length,core.MAX_HISTORY);});
+test("insufficient history yields HOLD",()=>{const h=new Map([["X",[1,2,3].map((price,i)=>({price,sampledAt:i}))]]);assert.equal(core.signalFor({pair:"X"},h).signal,"HOLD");});
+test("rising momentum can yield BUY after estimated costs",()=>{const h=new Map([["X",[100,101,102,104].map((price,i)=>({price,sampledAt:i}))]]);const s=core.signalFor({pair:"X",bid:103.9,ask:104},h);assert.equal(s.signal,"BUY");assert.ok(s.estimatedCost>=0.4);});
+test("flat market stays HOLD and net deducts costs",()=>{const h=new Map([["X",[100,100,100,100].map((price,i)=>({price,sampledAt:i}))]]);const s=core.signalFor({pair:"X",bid:99.9,ask:100.1},h);assert.equal(s.signal,"HOLD");assert.ok(s.net<0);});
+test("missing spread is not negative",()=>{const h=new Map([["X",[100,101,102,104].map((price,i)=>({price,sampledAt:i}))]]);assert.equal(core.signalFor({pair:"X"},h).estimatedCost,0.4);});
