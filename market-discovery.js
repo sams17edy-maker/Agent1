@@ -14,9 +14,9 @@ export function discoverSpotMarkets(payload) {
     .filter(row => row && typeof row.i === "string" && /^[A-Z0-9]+_(EUR|USD|USDT|BTC|USDC)$/.test(row.i))
     .map(row => {
       const [base, quote] = row.i.split("_");
-      const ask = Number(row.a);
+      const last = Number(row.a);
       const bid = Number(row.b);
-      const last = Number(row.k);
+      const ask = Number(row.k);
       const timestamp = Number(row.t);
       return {
         pair: row.i,
