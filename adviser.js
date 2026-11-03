@@ -1,9 +1,9 @@
 (() => {
 "use strict";
 const core=window.AdviserCore, endpoint="https://api.crypto.com/exchange/v1/public/get-tickers";
-const MIN_SAMPLES=4, MAX_HISTORY=24, REFRESH_MS=15000;
+const REFRESH_MS=15000;
 const $=id=>document.getElementById(id), history=new Map(); let busy=false;
-const eur=n=>Number.isFinite(n)?new Intl.NumberFormat("en-IE",{style:"currency",currency:"EUR",maximumSignificantDigits:8}).format(n):"—";
+const eur=n=>Number.isFinite(n)?new Intl.NumberFormat("en-IE",{style:"currency",currency:"EUR",maximumSignificantDigits:8}).format(n):"—";\nconst num=core.finitePositive;
 const esc=s=>String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 async function refresh(){
  if(busy)return;busy=true;$("status").textContent="Refreshing Crypto.com public market data…";
