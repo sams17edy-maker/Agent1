@@ -12,3 +12,41 @@ test("missing spread is not negative",()=>{const h=new Map([["X",[100,101,102,10
 
 test("ticker freshness accepts seconds or milliseconds and rejects stale, future, missing timestamps",()=>{const now=1700000000000;assert.equal(core.tickerFresh(1699999999000,now),true);assert.equal(core.tickerFresh(1699999999,now),true);assert.equal(core.tickerFresh(1699999900000,now),false);assert.equal(core.tickerFresh(null,now),false);assert.equal(core.tickerFresh(now+60000,now),false);});
 test("stale/unknown ticker signal is suppressed to HOLD",()=>{const s=core.suppressStale({signal:"BUY",why:"momentum",confidence:"MEDIUM",net:1.2});assert.equal(s.signal,"HOLD");assert.equal(s.net,null);assert.equal(s.confidence,"LOW");assert.equal(s.stale,true);});
+
+const fs=require("node:fs"),vm=require("node:vm");
+const discoverySource=fs.readFileSync(require.resolve("./market-discovery.js"),"utf8")
+  .replace(/^export const /gm,"const ")
+  .replace(/^export function /gm,"function ")
+  + "\nglobalThis.__marketDiscovery={discoverSpotMarkets,evaluateHoldSignals,calculateNetPosition,validateFeeAccounting};";
+const discoverySandbox={};
+vm.runInNewContext(discoverySource,discoverySandbox);
+const discovery=discoverySandbox.__marketDiscovery;
+
+test("market discovery uses latest trade a, bid b and ask k",()=>{
+  const markets=discovery.discoverSpotMarkets({code:0,result:{data:[
+    {i:"BTC_EUR",a:"65000",b:"64990",k:"65010",t:"1700000000000"}
+  ]}});
+  assert.equal(markets.length,1);
+  assert.equal(markets[0].last,65000);
+  assert.equal(markets[0].bid,64990);
+  assert.equal(markets[0].ask,65010);
+});
+
+test("market discovery accepts supported quote pairs and filters invalid rows",()=>{
+  const markets=discovery.discoverSpotMarkets({code:0,result:{data:[
+    {i:"BTC_EUR",a:"65000",b:"64990",k:"65010"},
+    {i:"TOKEN_USDT",a:"0.12",b:"0.119",k:"0.121"},
+    {i:"BAD_PAIR",a:"1",b:"1",k:"1"},
+    {i:"ZERO_USD",a:"0",b:"0",k:"0"}
+  ]}});
+  assert.deepEqual(markets.map(m=>m.pair),["BTC_EUR","TOKEN_USDT"]);
+});
+
+test("fee accounting calculates net after entry and exit fees",()=>{
+  const result=discovery.calculateNetPosition({buyNotional:100,buyFeeRate:0.004,sellNotional:110,sellFeeRate:0.004});
+  assert.equal(result.valid,true);
+  assert.ok(Math.abs(result.totalEntryCost-100.4)<1e-9);
+  assert.ok(Math.abs(result.netSaleProceeds-109.56)<1e-9);
+  assert.ok(Math.abs(result.netProfit-9.16)<1e-9);
+  assert.ok(Math.abs(result.breakEvenSellNotional-(100.4/0.996))<1e-9);
+});
