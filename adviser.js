@@ -7,9 +7,21 @@ const eur=n=>Number.isFinite(n)?new Intl.NumberFormat("en-IE",{style:"currency",
 const num=core.finitePositive;
 const esc=s=>String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 
+function renderFeaturedAlert(markets,stale=false){
+ const candidates=markets.map(m=>({...m,...(stale||!m.fresh?core.suppressStale(core.signalFor(m,history)):core.signalFor(m,history))}))
+  .filter(m=>m.signal!=="HOLD"&&Number.isFinite(m.net))
+  .sort((a,b)=>Math.abs(b.net)-Math.abs(a.net));
+ const box=$("featured-alert");
+ if(stale){box.innerHTML='<div class="row"><strong>Market alert</strong><span class="pill amber">STALE FEED</span></div><div class="alert-title flat">NO CURRENT ALERT</div><p>Market data is stale or unavailable. Previous directional observations are suppressed until fresh timestamps return.</p>';return;}
+ const best=candidates[0];
+ if(!best){box.innerHTML='<div class="row"><strong>Market alert</strong><span class="pill amber">OBSERVATION ONLY</span></div><div class="alert-title flat">NO CLEAR DIRECTION</div><p>No market currently meets the short-term observation threshold after estimated fees and spread. Continue monitoring; this is not a buy or sell instruction.</p>';return;}
+ const up=best.signal==="BUY",direction=up?"UPWARD MOMENTUM OBSERVED":"DOWNWARD MOMENTUM OBSERVED";
+ box.innerHTML='<div class="row"><strong>Market alert</strong><span class="pill amber">OBSERVATION ONLY</span></div><div class="alert-title '+(up?"up":"down")+'">'+direction+'</div><div class="alert-meta"><span>Market<strong>'+esc(best.pair)+'</strong></span><span>Observed move after estimated costs<strong>'+best.net.toFixed(2)+'%</strong></span><span>Illustrative round-trip cost<strong>'+Number(best.estimatedCost||0).toFixed(2)+'%</strong></span><span>Confidence<strong>'+esc(best.confidence)+'</strong></span></div><p>'+esc(best.why)+'. This describes recent market behaviour; it is not a personal recommendation or an instruction to trade.</p>';
+}
 function renderSignals(markets,stale=false){
  const sigs=markets.map(m=>{const s=(stale||!m.fresh)?core.suppressStale(core.signalFor(m,history)):core.signalFor(m,history);return {...m,...s};});
  $("signals").innerHTML=sigs.length?'<table><thead><tr><th>Market</th><th>Signal</th><th>Reason · confidence · observed net move</th></tr></thead><tbody>'+sigs.map(m=>'<tr><td><b>'+esc(m.pair)+'</b></td><td class="signal '+m.signal+'">'+m.signal+'</td><td>'+esc(m.why)+' · '+m.confidence+(m.net!==null?' · observed '+m.net.toFixed(2)+'% after estimated fees/spread':'')+'</td></tr>').join("")+'</tbody></table>':'<div class="empty">Signals unavailable.</div>';
+ renderFeaturedAlert(markets,stale);
 }
 async function refresh(){
  if(busy)return;busy=true;$("status").textContent="Refreshing Crypto.com public market data…";
