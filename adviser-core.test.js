@@ -39,7 +39,7 @@ test("market discovery accepts supported quote pairs and filters invalid rows",(
     {i:"BAD_PAIR",a:"1",b:"1",k:"1"},
     {i:"ZERO_USD",a:"0",b:"0",k:"0"}
   ]}});
-  assert.deepEqual(markets.map(m=>m.pair),["BTC_EUR","TOKEN_USDT"]);
+  assert.equal(Array.from(markets,m=>m.pair).join(","),"BTC_EUR,TOKEN_USDT");
 });
 
 test("fee accounting calculates net after entry and exit fees",()=>{
