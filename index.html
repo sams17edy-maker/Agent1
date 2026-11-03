@@ -36,8 +36,8 @@ footer{max-width:980px;margin:14px auto;padding:0 16px;color:var(--muted);font-s
 <main>
  <section class="panel">
   <div class="row"><span class="label">PAPER PORTFOLIO VALUE</span><span class="pill amber" id="modePill">PUBLIC DATA / PAPER ONLY</span></div>
-  <div class="big" id="equity">€10.00</div>
-  <div class="row"><span class="sub">Starting balance <strong id="startingBalance">€10.00</strong></span><strong id="pnl">€0.00 (0.00%)</strong></div>
+  <div class="big" id="equity">€100.00</div>
+  <div class="row"><span class="sub">Simulated starting balance <strong id="startingBalance">€100.00</strong></span><strong id="pnl">€0.00 (0.00%)</strong></div>
   <div class="grid" style="margin-top:14px">
    <div class="stat"><span class="label">Trading cash</span><strong id="cash">€10.00</strong></div>
    <div class="stat"><span class="label">Virtual profit savings (not tradable)</span><strong id="savings">€0.00</strong></div>
@@ -63,11 +63,11 @@ footer{max-width:980px;margin:14px auto;padding:0 16px;color:var(--muted);font-s
   <div class="formgrid">
    <div class="field"><label for="symbol">Asset</label><select id="symbol"><option>BTC</option><option>ETH</option><option>SOL</option><option>XRP</option><option>PEPE</option><option>ADA</option><option>DOGE</option><option>LINK</option><option>AVAX</option><option>DOT</option><option>LTC</option><option>BCH</option><option>XLM</option><option>UNI</option><option>ATOM</option><option>NEAR</option><option>ETC</option><option>APT</option><option>ARB</option><option>OP</option><option>COQ</option><option>CRO</option></select></div>
    <div class="field"><label for="side">Action</label><select id="side"><option value="buy">Buy</option><option value="sell">Sell</option></select></div>
-   <div class="field" style="grid-column:1/-1"><label for="amount">Order value (€)</label><input id="amount" type="number" min="1" max="50" step="1" value="25"></div>
+   <div class="field" style="grid-column:1/-1"><label for="amount">Order value (€)</label><input id="amount" type="number" min="0.01" step="0.01" value="25"></div>
   </div>
   <div class="actions"><button id="orderBtn">Place simulated order</button></div>
   <p class="sub">Autonomous paper mode is controlled in the portfolio panel above. Paper only; no exchange connection.</p>
-  <p class="sub" id="orderMessage" aria-live="polite">Max €50 per order · Max €250 total exposure · No leverage.</p>
+  <p class="sub" id="orderMessage" aria-live="polite">No fixed order or exposure cap · simulated fees apply.</p>
  </section>
  <section class="panel">
   <div class="row"><strong>Portfolio allocation</strong><span class="sub">Virtual holdings</span></div>
@@ -103,12 +103,12 @@ footer{max-width:980px;margin:14px auto;padding:0 16px;color:var(--muted);font-s
  <section class="panel wide">
   <div class="row"><strong>Risk explainer</strong><span class="pill">Educational</span></div>
   <div class="grid" style="margin-top:10px">
-   <div class="stat"><span class="label">Position cap</span><strong>€50</strong><div class="sub">Limits one simulated order</div></div>
-   <div class="stat"><span class="label">Exposure cap</span><strong>€250</strong><div class="sub">Limits total virtual holdings</div></div>
-   <div class="stat"><span class="label">Daily loss threshold</span><strong>€10</strong><div class="sub">A test threshold, not a guarantee</div></div>
+   
+   
+   
    <div class="stat"><span class="label">Simulated fee</span><strong>0.20%</strong><div class="sub">Illustrative assumption only</div></div>
   </div>
-  <p class="notice" style="margin-top:12px"><b>Why risk controls matter:</b> a position can lose value even when an indicator looks positive. Exposure limits reduce how much virtual capital is allocated; fees and slippage can make results worse. A stop or threshold cannot guarantee a particular exit price.</p>
+  <p class="notice" style="margin-top:12px"><b>Simulation note:</b> Removing fixed order and exposure caps does not remove market risk. Orders are limited by available simulated cash and held quantity; the fee assumption is illustrative, and slippage or price gaps can change results.</p>
  </section>
 \n <section class="panel wide">\n  <div class="row"><strong>Daily report</strong><span class="pill" id="reportStatus">Not generated</span></div>
   <div id="report" class="sub" style="margin-top:10px">Generate a report to review virtual equity, cash, exposure and simulated orders.</div>
