@@ -1,6 +1,7 @@
 (() => {
 "use strict";
 const FEE=0.002, endpoint="https://api.crypto.com/exchange/v1/public/get-tickers";
+const MIN_SAMPLES=4, MAX_HISTORY=24, REFRESH_MS=15000;
 const $=id=>document.getElementById(id), history=new Map(); let busy=false;
 const eur=n=>Number.isFinite(n)?new Intl.NumberFormat("en-IE",{style:"currency",currency:"EUR",maximumSignificantDigits:8}).format(n):"—";
 function signalFor(m, now){
@@ -22,14 +23,14 @@ async function refresh(){
  const base=match[1],quote=match[2],last=Number(t.a||t.l),stamp=Number(t.t);if(!(last>0)||!Number.isFinite(stamp))continue;
  const price=quote==="EUR"?last:quote==="USDT"&&eurUsdt>0?last/eurUsdt:quote==="USD"&&eurUsd>0?last/eurUsd:NaN;if(!(price>0))continue;
  const m={pair:t.i,base,quote,price,bid:Number(t.b),ask:Number(t.a),timestamp:stamp};markets.push(m);
- const arr=history.get(m.pair)||[];if(!arr.length||arr[arr.length-1].timestamp!==stamp){arr.push({price,timestamp:stamp});while(arr.length>8)arr.shift();history.set(m.pair,arr);}
+ const arr=history.get(m.pair)||[];if(!arr.length||arr[arr.length-1].timestamp!==stamp){arr.push({price,timestamp:stamp});while(arr.length>MAX_HISTORY)arr.shift();history.set(m.pair,arr);}
  }
  markets.sort((a,b)=>a.base.localeCompare(b.base)||a.quote.localeCompare(b.quote));
  $("markets").innerHTML=markets.length?'<table><thead><tr><th>Market</th><th>Reference (EUR)</th><th>Bid / ask</th></tr></thead><tbody>'+markets.map(m=>'<tr><td><b>'+m.pair+'</b></td><td>'+eur(m.price)+'</td><td>'+(m.bid>0&&m.ask>0?m.bid+' / '+m.ask:'—')+'</td></tr>').join("")+'</tbody></table>':'<div class="empty">No EUR-convertible markets in this response.</div>';
- const sigs=markets.map(m=>({...m,...signalFor(m,Date.now())}));
- $("signals").innerHTML=sigs.length?'<table><thead><tr><th>Market</th><th>Signal</th><th>Reason / fee estimate</th></tr></thead><tbody>'+sigs.map(m=>'<tr><td><b>'+m.pair+'</b></td><td class="signal '+m.signal+'">'+m.signal+'</td><td>'+m.why+(m.net!==null?' · net estimate '+m.net.toFixed(2)+'%':'')+'</td></tr>').join("")+'</tbody></table>':'<div class="empty">Signals unavailable.</div>';
+ const sigs=markets.map(m=>({...m,...signalFor(m)}));
+ $("signals").innerHTML=sigs.length?'<table><thead><tr><th>Market</th><th>Signal</th><th>Reason · confidence · estimated net</th></tr></thead><tbody>'+sigs.map(m=>'<tr><td><b>'+m.pair+'</b></td><td class="signal '+m.signal+'">'+m.signal+'</td><td>'+m.why+' · '+m.confidence+(m.net!==null?' · net after fee/spread estimate '+m.net.toFixed(2)+'%':'')+'</td></tr>').join("")+'</tbody></table>':'<div class="empty">Signals unavailable.</div>';
  $("status").textContent="Updated "+new Date().toLocaleTimeString()+" · "+markets.length+" discovered quote markets · public data only.";
  }catch(e){$("status").textContent="Market feed unavailable: "+e.message+" · Please retry.";console.warn(e)}finally{busy=false}
 }
-$("refresh").addEventListener("click",refresh);refresh();setInterval(()=>{if(document.visibilityState==="visible")refresh()},15000);
+$("refresh").addEventListener("click",refresh);refresh();setInterval(()=>{if(document.visibilityState==="visible")refresh()},REFRESH_MS);
 })();
