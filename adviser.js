@@ -4,12 +4,21 @@ const FEE=0.002, endpoint="https://api.crypto.com/exchange/v1/public/get-tickers
 const MIN_SAMPLES=4, MAX_HISTORY=24, REFRESH_MS=15000;
 const $=id=>document.getElementById(id), history=new Map(); let busy=false;
 const eur=n=>Number.isFinite(n)?new Intl.NumberFormat("en-IE",{style:"currency",currency:"EUR",maximumSignificantDigits:8}).format(n):"—";
-function signalFor(m, now){
- const arr=history.get(m.pair)||[]; if(arr.length<4)return {signal:"HOLD",why:"Collecting price history",net:null};
- const first=arr[0].price,last=arr[arr.length-1].price,change=(last-first)/first;
- const move=change*100, feeHurdle=FEE*2*100;
- const signal=move>feeHurdle*1.5?"BUY":move< -feeHurdle*1.5?"SELL":"HOLD";
- return {signal,why:"Observed move "+(move>=0?"+":"")+move.toFixed(2)+"% · round-trip fee estimate "+feeHurdle.toFixed(2)+"%",net:move-feeHurdle};
+function signalFor(m){
+ const arr=history.get(m.pair)||[];
+ if(arr.length<MIN_SAMPLES)return {signal:"HOLD",why:"Collecting "+(MIN_SAMPLES-arr.length)+" more distinct quote samples",net:null,confidence:"LOW"};
+ const first=arr[0].price,last=arr[arr.length-1].price;
+ const move=(last/first-1)*100, feeHurdle=FEE*2*100;
+ const changes=arr.slice(1).map((p,i)=>(p.price/arr[i].price-1)*100);
+ const positive=changes.filter(x=>x>0).length, negative=changes.filter(x=>x<0).length;
+ const momentum=(arr.at(-1).price/arr.at(-4).price-1)*100;
+ const spreadPct=m.bid>0&&m.ask>0?(m.ask-m.bid)/((m.ask+m.bid)/2)*100:NaN;
+ const estimatedCost=feeHurdle+(Number.isFinite(spreadPct)?spreadPct:0);
+ const net=move-estimatedCost;
+ let signal="HOLD",why="Movement does not clear estimated trading-cost hurdle";
+ if(momentum>estimatedCost*1.5&&positive>=Math.ceil(changes.length*.6)){signal="BUY";why="Positive short-term momentum; review entry risk";}
+ else if(momentum< -estimatedCost*1.5&&negative>=Math.ceil(changes.length*.6)){signal="SELL";why="Negative short-term momentum; review exit risk";}
+ return {signal,why,net,confidence:arr.length>=12?"MEDIUM":"LOW",estimatedCost};
 }
 async function refresh(){
  if(busy)return;busy=true;$("status").textContent="Refreshing Crypto.com public market data…";
