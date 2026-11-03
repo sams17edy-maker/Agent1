@@ -446,7 +446,12 @@
       $("holdings").innerHTML = rows.length
         ? rows.map(([c, q]) => {
             const marked = Number.isFinite(prices[c]) && prices[c] > 0;
-            return `<div class="asset"><strong>${c}</strong><span>${q.toFixed(8)} · ${marked ? eur(q * prices[c]) : "Market valuation unavailable"}</span></div>`;
+            const grossExit = marked ? q * prices[c] : NaN;
+            const estimatedSellFee = marked ? grossExit * FEE : NaN;
+            const netExit = marked ? grossExit - estimatedSellFee : NaN;
+            const basis = Number(state.costBasis?.[c]) || 0;
+            const netPnl = marked ? netExit - basis : NaN;
+            return `<div class="asset"><div><strong>${c}</strong><div class="sub">${q.toFixed(8)} · Est. sell fee ${marked ? eur(estimatedSellFee) : "—"} · Net proceeds ${marked ? eur(netExit) : "—"}</div></div><div class="price">${marked ? eur(grossExit) : "Market valuation unavailable"}<div class="sub">${marked ? "Net P/L after estimated sell fee: "+(netPnl>=0?"+":"")+eur(netPnl) : "P/L unavailable"}</div></div></div>`;
           }).join("")
         : '<div class="empty">No open positions.</div>';
     }
