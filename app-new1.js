@@ -2,15 +2,15 @@
 (() => {
   "use strict";
 
-  const START = 10;
+  const START = 100; // User-configurable simulated starting balance; never real funds.
   const COINS = Object.freeze({BTC: { name: "Bitcoin", id: "bitcoin" }, ETH: { name: "Ethereum", id: "ethereum" }, SOL: { name: "Solana", id: "solana" }, XRP: { name: "XRP", id: "ripple" }, PEPE: { name: "Pepe", id: "pepe" }, ADA: { name: "Cardano", id: "cardano" }, DOGE: { name: "Dogecoin", id: "dogecoin" }, LINK: { name: "Chainlink", id: "chainlink" }, AVAX: { name: "Avalanche", id: "avalanche-2" }, DOT: { name: "Polkadot", id: "polkadot" }, LTC: { name: "Litecoin", id: "litecoin" }, BCH: { name: "Bitcoin Cash", id: "bitcoin-cash" }, XLM: { name: "Stellar", id: "stellar" }, UNI: { name: "Uniswap", id: "uniswap" }, ATOM: { name: "Cosmos", id: "cosmos" }, NEAR: { name: "NEAR Protocol", id: "near" }, ETC: { name: "Ethereum Classic", id: "ethereum-classic" }, APT: { name: "Aptos", id: "aptos" }, ARB: { name: "Arbitrum", id: "arbitrum" }, OP: { name: "Optimism", id: "optimism" }, COQ: { name: "Coq Inu", id: "coq-inu" }, CRO: { name: "Cronos", id: "crypto-com-chain" }});
   const COIN_SYMBOLS = Object.keys(COINS);
   // Keep legacy BNB records readable without listing or trading BNB in the new market set.
   const SUPPORTED_COINS = [...COIN_SYMBOLS, "BNB"];
 
   const FEE = 0.002;
-  const MAX_ORDER = 50;
-  const MAX_EXPOSURE = 250;
+  const MAX_ORDER = Infinity;
+  const MAX_EXPOSURE = Infinity;
   const DAILY_LOSS_LIMIT = 10;
   const MAX_PRICE_AGE_MS = 2 * 60 * 1000;
   const MAX_AUTO_QUOTE_AGE_MS = 2 * 60 * 1000;
@@ -60,7 +60,7 @@
     if (!s.history.every(t => t && Number.isFinite(t.time) &&
       t.time > 0 && t.time <= latestAllowedTime &&
       ["BUY", "SELL"].includes(t.side) && COIN_SYMBOLS.includes(t.coin) &&
-      Number.isFinite(t.amount) && t.amount > 0 && t.amount <= MAX_ORDER &&
+      Number.isFinite(t.amount) && t.amount > 0 &&
       Number.isFinite(t.fee) && t.fee >= 0 &&
       t.fee <= t.amount * FEE + 1e-9 &&
       (t.realizedNet === undefined || Number.isFinite(t.realizedNet)) &&
@@ -424,7 +424,7 @@
     say("marketStatus", loadWarning || saveWarning || "Crypto.com Exchange spot prices updated · EUR · paper only.");
     say("orderMessage", state.paused
       ? "Simulated buying paused: daily loss limit reached."
-      : `Exposure ${eur(exposure())} / ${eur(MAX_EXPOSURE)}. Paper only.`);
+      : `Virtual exposure ${eur(exposure())}. Paper only.`);
 
     const marketBox = $("discoveredMarkets");
     if (marketBox) {
@@ -522,7 +522,7 @@
         supportedCoins.some(c => (wallet.holdings[c] ?? 0) > 0 &&
           (!Number.isFinite(quote[c]) || quote[c] <= 0)) ||
         !["buy", "sell"].includes(side) ||
-        !Number.isFinite(amount) || amount <= 0 || amount > MAX_ORDER) {
+        !Number.isFinite(amount) || amount <= 0 || amount <= 0) {
       return { ok: false, reason: "invalid-order" };
     }
 
@@ -592,7 +592,7 @@
     });
     if (!result.ok) {
       const messages = {
-        "invalid-order": "Enter a valid order between €0.01 and €50.",
+        "invalid-order": "Enter a valid positive order amount.",
         "daily-loss": "Buying paused by the simulated daily loss limit.",
         "insufficient-cash": "Insufficient virtual cash including fees.",
         "exposure-limit": "Virtual exposure limit would be exceeded.",
@@ -683,7 +683,7 @@
       const reasons = [];
       if (!prior) reasons.push("need a second distinct observation");
       if (state.paused) reasons.push("daily-loss safeguard active");
-      if (exposure() >= MAX_EXPOSURE) reasons.push("exposure cap reached");
+      
       if (state.cash < 1 + FEE) reasons.push("insufficient virtual cash");
       state.autoLastAction = "Fast check (" + latency + " ms): " +
         (reasons.length ? reasons.join("; ") : "no fresh signal cleared the fee-aware threshold") + ".";
@@ -693,11 +693,10 @@
     choices.sort((x, y) => y.score - x.score);
     const pick = choices[0];
     const budget = pick.side === "sell"
-      ? Math.min(MAX_ORDER, Math.max(0, Math.floor((state.holdings[pick.coin] || 0) * prices[pick.coin] * 100) / 100))
-      : Math.min(MAX_ORDER, Math.max(0, state.cash / (1 + FEE)),
-          Math.max(0, MAX_EXPOSURE - exposure()));
+      ? Math.max(0, Math.floor((state.holdings[pick.coin] || 0) * prices[pick.coin] * 100) / 100)
+      : Math.max(0, state.cash / (1 + FEE));
     const confidence = Math.max(0, Math.min(1, (pick.score - hurdle) / 0.02));
-    const targetAmount = Math.max(0.01, Math.round((1 + confidence * (MAX_ORDER - 1)) * 100) / 100);
+    const targetAmount = Math.max(0.01, Math.round(state.cash * (0.05 + confidence * 0.20) * 100) / 100);
     const amount = Math.min(budget, targetAmount);
     if (amount < 0.01) {
       state.autoLastAction = "Fast check (" + latency + " ms): blocked by available paper funds/exposure.";
@@ -745,7 +744,7 @@
   function buyBlockReason({ paused, amount, fee, cash, currentExposure }) {
     if (paused) return "daily-loss";
     if (amount + fee > cash) return "insufficient-cash";
-    if (currentExposure + amount > MAX_EXPOSURE) return "exposure-limit";
+    
     return null;
   }
 
@@ -1023,7 +1022,7 @@
   }
 
   function reset() {
-    if (!confirm("Reset the virtual paper portfolio to €10 and clear all previous paper orders?")) return;
+    if (!confirm("Reset the virtual paper portfolio and clear all previous simulated orders?")) return;
     const nextState = initial();
     if (!commitState(nextState)) {
       say("report", "Reset cancelled because the browser could not save the new empty paper wallet. Existing wallet remains active.");
