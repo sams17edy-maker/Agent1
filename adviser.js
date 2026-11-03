@@ -3,7 +3,8 @@
 const core=window.AdviserCore, endpoint="https://api.crypto.com/exchange/v1/public/get-tickers";
 const REFRESH_MS=15000;
 const $=id=>document.getElementById(id), history=new Map(); let busy=false;
-const eur=n=>Number.isFinite(n)?new Intl.NumberFormat("en-IE",{style:"currency",currency:"EUR",maximumSignificantDigits:8}).format(n):"—";\nconst num=core.finitePositive;
+const eur=n=>Number.isFinite(n)?new Intl.NumberFormat("en-IE",{style:"currency",currency:"EUR",maximumSignificantDigits:8}).format(n):"—";
+const num=core.finitePositive;
 const esc=s=>String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 async function refresh(){
  if(busy)return;busy=true;$("status").textContent="Refreshing Crypto.com public market data…";
@@ -22,11 +23,7 @@ async function refresh(){
   const price=Number.isFinite(rate)?last*rate:NaN;
   const m={pair:t.i,base,quote,last,bid,ask,price};
   markets.push(m);
-  const arr=history.get(m.pair)||[],now=Date.now(),prev=arr.at(-1);
-  // Keep a new observation only when price changes or at least 60 seconds elapsed.
-  if(!prev||prev.price!==last||now-prev.sampledAt>=60000){
-   arr.push({price:last,sampledAt:now});while(arr.length>MAX_HISTORY)arr.shift();history.set(m.pair,arr);
-  }
+  core.addSample(history,m.pair,last);
  }
  markets.sort((a,b)=>a.base.localeCompare(b.base)||a.quote.localeCompare(b.quote));
  $("markets").innerHTML=markets.length?'<table><thead><tr><th>Market</th><th>Last</th><th>Bid / ask</th><th>EUR reference</th></tr></thead><tbody>'+markets.map(m=>'<tr><td><b>'+esc(m.pair)+'</b></td><td>'+m.last+'</td><td>'+(Number.isFinite(m.bid)&&Number.isFinite(m.ask)?m.bid+' / '+m.ask:'—')+'</td><td>'+eur(m.price)+'</td></tr>').join("")+'</tbody></table>':'<div class="empty">No markets returned by the public feed.</div>';
