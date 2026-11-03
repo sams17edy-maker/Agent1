@@ -126,6 +126,7 @@
 
   let state = load();
   let prices = null;
+  let discoveredMarkets = [];
   let pricesUpdatedAt = null;
   let priceTimestamps = {};
   let consecutivePriceFailures = 0;
@@ -256,6 +257,20 @@
       const usdFxUsable = Number.isFinite(eurUsd) && eurUsd > 0 &&
         Number.isFinite(usdFxUpdatedAt) && usdFxUpdatedAt > 0;
       const p = {}, timestamps = {};
+      const discovered = [];
+      for (const ticker of payload.result.data) {
+        if (!ticker || typeof ticker.i !== "string") continue;
+        const match = ticker.i.match(/^([A-Z0-9]+)_(EUR|USDT|USD)$/);
+        if (!match) continue;
+        const [, base, quote] = match;
+        const ask = Number(ticker.a), bid = Number(ticker.b), last = Number(ticker.l);
+        const stamp = Number(ticker.t);
+        if (!(last > 0) || !Number.isFinite(stamp) || stamp <= 0) continue;
+        let eurPrice = quote === "EUR" ? last : quote === "USDT" && fxUsable ? last / eurUsdt : quote === "USD" && usdFxUsable ? last / eurUsd : NaN;
+        if (!(eurPrice > 0) || !Number.isFinite(eurPrice)) continue;
+        discovered.push({ pair: ticker.i, base, quote, price: eurPrice, bid: Number.isFinite(bid) && bid > 0 ? bid : null, ask: Number.isFinite(ask) && ask > 0 ? ask : null, timestamp: stamp });
+      }
+      discoveredMarkets = discovered.sort((a,b) => a.base.localeCompare(b.base) || a.quote.localeCompare(b.quote));
       for (const coin of COIN_SYMBOLS) {
         for (const pair of (CRYPTOCOM_SPOT_PAIRS[coin] || [])) {
           const ticker = tickers.get(pair);
@@ -285,7 +300,7 @@
         Number.isFinite(timestamps[c]) && timestamps[c] <= now &&
         now - timestamps[c] <= MAX_PRICE_AGE_MS);
       if (validFresh.length < 3) throw new Error("Insufficient fresh Crypto.com EUR spot quotes");
-      return { prices: p, timestamps };
+      return { prices: p, timestamps, discoveredMarkets };
     } finally {
       clearTimeout(timeout);
     }
@@ -411,6 +426,13 @@
       ? "Simulated buying paused: daily loss limit reached."
       : `Exposure ${eur(exposure())} / ${eur(MAX_EXPOSURE)}. Paper only.`);
 
+    const marketBox = $("discoveredMarkets");
+    if (marketBox) {
+      const rows = discoveredMarkets;
+      marketBox.innerHTML = rows.length
+        ? `<div class="sub">${rows.length} discovered quote markets · Crypto.com public ticker feed · EUR-normalized reference prices</div><div style="max-height:420px;overflow:auto"><table><thead><tr><th>Market</th><th>Quote</th><th>EUR reference</th><th>Bid/ask</th></tr></thead><tbody>${rows.map(m => `<tr><td><strong>${m.base}</strong> / ${m.quote}</td><td>${m.quote}</td><td>${eur(m.price)}</td><td>${m.bid && m.ask ? m.bid.toPrecision(7)+" / "+m.ask.toPrecision(7) : "—"}</td></tr>`).join("")}</tbody></table></div>`
+        : '<div class="empty">Market discovery has not loaded yet.</div>';
+    }
     const names = Object.fromEntries(COIN_SYMBOLS.map(c => [c, COINS[c].name]));
     if ($("assets")) $("assets").innerHTML = COIN_SYMBOLS.map(c => {
       const p = prices[c];
@@ -458,7 +480,7 @@
       speedStats.fetchMs=performance.now()-fetchStarted;
       speedStats.lastQuoteAt=Date.now(); speedStats.lastError=null;
       consecutivePriceFailures = 0; nextPriceRetryAt = 0;
-      prices = fresh.prices; priceTimestamps = fresh.timestamps;
+      prices = fresh.prices; priceTimestamps = fresh.timestamps; discoveredMarkets = fresh.discoveredMarkets || [];
       pricesUpdatedAt = Math.max(...Object.values(priceTimestamps));
       if (!state.basisInitialized) {
         state.costBasis = { ...initial().costBasis, ...(state.costBasis || {}) };
