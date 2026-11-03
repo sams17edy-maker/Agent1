@@ -75,3 +75,71 @@ export function validateMarketModule() {
     noOrderExecution: !("order" in signal) && !("execute" in signal)
   };
 }
+
+
+/* Fee-aware position accounting. Rates are decimal fractions (0.004 = 0.4%).
+ * All amounts are quote-currency notional; calculations are estimates unless
+ * actual exchange fee amounts are supplied by the user.
+ */
+export function calculateNetPosition({
+  buyNotional,
+  buyFeeRate = 0,
+  buyFeeAmount,
+  sellNotional,
+  sellFeeRate = 0,
+  sellFeeAmount
+} = {}) {
+  const validMoney = value => Number.isFinite(value) && value >= 0;
+  const validRate = value => Number.isFinite(value) && value >= 0 && value < 1;
+
+  if (!validMoney(buyNotional) || !validMoney(sellNotional) ||
+      !validRate(buyFeeRate) || !validRate(sellFeeRate) ||
+      (buyFeeAmount !== undefined && !validMoney(buyFeeAmount)) ||
+      (sellFeeAmount !== undefined && !validMoney(sellFeeAmount))) {
+    return { valid: false, error: "Enter valid non-negative amounts and fee rates below 100%." };
+  }
+
+  const entryFee = buyFeeAmount ?? buyNotional * buyFeeRate;
+  const exitFee = sellFeeAmount ?? sellNotional * sellFeeRate;
+  const totalEntryCost = buyNotional + entryFee;
+  const netSaleProceeds = sellNotional - exitFee;
+  const netProfit = netSaleProceeds - totalEntryCost;
+  const netReturnPercent = totalEntryCost > 0
+    ? (netProfit / totalEntryCost) * 100
+    : null;
+  const breakEvenSellNotional = sellFeeRate < 1
+    ? totalEntryCost / (1 - sellFeeRate)
+    : null;
+
+  return {
+    valid: true,
+    currency: "quote currency",
+    entryFee,
+    exitFee,
+    totalEntryCost,
+    netSaleProceeds,
+    netProfit,
+    netReturnPercent,
+    breakEvenSellNotional,
+    feeStatus: (buyFeeAmount !== undefined || sellFeeAmount !== undefined)
+      ? "Includes supplied actual fee amount(s); any rate-based fee is estimated."
+      : "Estimated using configured fee rates; confirm against Crypto.com fee tier."
+  };
+}
+
+export function validateFeeAccounting() {
+  const result = calculateNetPosition({
+    buyNotional: 100,
+    buyFeeRate: 0.004,
+    sellNotional: 110,
+    sellFeeRate: 0.004
+  });
+  const near = (a, b) => Math.abs(a - b) < 1e-9;
+  return {
+    includesBuyFee: near(result.totalEntryCost, 100.4),
+    subtractsSellFee: near(result.netSaleProceeds, 109.56),
+    netProfitCorrect: near(result.netProfit, 9.16),
+    breakEvenCorrect: near(result.breakEvenSellNotional, 100.4 / 0.996),
+    noOrderExecution: !("order" in result) && !("execute" in result)
+  };
+}
