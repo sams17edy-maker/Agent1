@@ -2,15 +2,15 @@
 (() => {
   "use strict";
 
-  const START = 10;
+  const START = 100; // User-configurable simulated starting balance; never real funds.
   const COINS = Object.freeze({BTC: { name: "Bitcoin", id: "bitcoin" }, ETH: { name: "Ethereum", id: "ethereum" }, SOL: { name: "Solana", id: "solana" }, XRP: { name: "XRP", id: "ripple" }, PEPE: { name: "Pepe", id: "pepe" }, ADA: { name: "Cardano", id: "cardano" }, DOGE: { name: "Dogecoin", id: "dogecoin" }, LINK: { name: "Chainlink", id: "chainlink" }, AVAX: { name: "Avalanche", id: "avalanche-2" }, DOT: { name: "Polkadot", id: "polkadot" }, LTC: { name: "Litecoin", id: "litecoin" }, BCH: { name: "Bitcoin Cash", id: "bitcoin-cash" }, XLM: { name: "Stellar", id: "stellar" }, UNI: { name: "Uniswap", id: "uniswap" }, ATOM: { name: "Cosmos", id: "cosmos" }, NEAR: { name: "NEAR Protocol", id: "near" }, ETC: { name: "Ethereum Classic", id: "ethereum-classic" }, APT: { name: "Aptos", id: "aptos" }, ARB: { name: "Arbitrum", id: "arbitrum" }, OP: { name: "Optimism", id: "optimism" }, COQ: { name: "Coq Inu", id: "coq-inu" }, CRO: { name: "Cronos", id: "crypto-com-chain" }});
   const COIN_SYMBOLS = Object.keys(COINS);
   // Keep legacy BNB records readable without listing or trading BNB in the new market set.
   const SUPPORTED_COINS = [...COIN_SYMBOLS, "BNB"];
 
   const FEE = 0.002;
-  const MAX_ORDER = 50;
-  const MAX_EXPOSURE = 250;
+  const MAX_ORDER = Infinity;
+  const MAX_EXPOSURE = Infinity;
   const DAILY_LOSS_LIMIT = 10;
   const MAX_PRICE_AGE_MS = 2 * 60 * 1000;
   const MAX_AUTO_QUOTE_AGE_MS = 2 * 60 * 1000;
@@ -60,7 +60,7 @@
     if (!s.history.every(t => t && Number.isFinite(t.time) &&
       t.time > 0 && t.time <= latestAllowedTime &&
       ["BUY", "SELL"].includes(t.side) && COIN_SYMBOLS.includes(t.coin) &&
-      Number.isFinite(t.amount) && t.amount > 0 && t.amount <= MAX_ORDER &&
+      Number.isFinite(t.amount) && t.amount > 0 &&
       Number.isFinite(t.fee) && t.fee >= 0 &&
       t.fee <= t.amount * FEE + 1e-9 &&
       (t.realizedNet === undefined || Number.isFinite(t.realizedNet)) &&
@@ -126,6 +126,7 @@
 
   let state = load();
   let prices = null;
+  let discoveredMarkets = [];
   let pricesUpdatedAt = null;
   let priceTimestamps = {};
   let consecutivePriceFailures = 0;
@@ -256,6 +257,20 @@
       const usdFxUsable = Number.isFinite(eurUsd) && eurUsd > 0 &&
         Number.isFinite(usdFxUpdatedAt) && usdFxUpdatedAt > 0;
       const p = {}, timestamps = {};
+      const discovered = [];
+      for (const ticker of payload.result.data) {
+        if (!ticker || typeof ticker.i !== "string") continue;
+        const match = ticker.i.match(/^([A-Z0-9]+)_(EUR|USDT|USD)$/);
+        if (!match) continue;
+        const [, base, quote] = match;
+        const ask = Number(ticker.a), bid = Number(ticker.b), last = Number(ticker.l);
+        const stamp = Number(ticker.t);
+        if (!(last > 0) || !Number.isFinite(stamp) || stamp <= 0) continue;
+        let eurPrice = quote === "EUR" ? last : quote === "USDT" && fxUsable ? last / eurUsdt : quote === "USD" && usdFxUsable ? last / eurUsd : NaN;
+        if (!(eurPrice > 0) || !Number.isFinite(eurPrice)) continue;
+        discovered.push({ pair: ticker.i, base, quote, price: eurPrice, bid: Number.isFinite(bid) && bid > 0 ? bid : null, ask: Number.isFinite(ask) && ask > 0 ? ask : null, timestamp: stamp });
+      }
+      discoveredMarkets = discovered.sort((a,b) => a.base.localeCompare(b.base) || a.quote.localeCompare(b.quote));
       for (const coin of COIN_SYMBOLS) {
         for (const pair of (CRYPTOCOM_SPOT_PAIRS[coin] || [])) {
           const ticker = tickers.get(pair);
@@ -285,7 +300,7 @@
         Number.isFinite(timestamps[c]) && timestamps[c] <= now &&
         now - timestamps[c] <= MAX_PRICE_AGE_MS);
       if (validFresh.length < 3) throw new Error("Insufficient fresh Crypto.com EUR spot quotes");
-      return { prices: p, timestamps };
+      return { prices: p, timestamps, discoveredMarkets };
     } finally {
       clearTimeout(timeout);
     }
@@ -409,8 +424,15 @@
     say("marketStatus", loadWarning || saveWarning || "Crypto.com Exchange spot prices updated · EUR · paper only.");
     say("orderMessage", state.paused
       ? "Simulated buying paused: daily loss limit reached."
-      : `Exposure ${eur(exposure())} / ${eur(MAX_EXPOSURE)}. Paper only.`);
+      : `Virtual exposure ${eur(exposure())}. Paper only.`);
 
+    const marketBox = $("discoveredMarkets");
+    if (marketBox) {
+      const rows = discoveredMarkets;
+      marketBox.innerHTML = rows.length
+        ? `<div class="sub">${rows.length} discovered quote markets · Crypto.com public ticker feed · EUR-normalized reference prices</div><div style="max-height:420px;overflow:auto"><table><thead><tr><th>Market</th><th>Quote</th><th>EUR reference</th><th>Bid/ask</th></tr></thead><tbody>${rows.map(m => `<tr><td><strong>${m.base}</strong> / ${m.quote}</td><td>${m.quote}</td><td>${eur(m.price)}</td><td>${m.bid && m.ask ? m.bid.toPrecision(7)+" / "+m.ask.toPrecision(7) : "—"}</td></tr>`).join("")}</tbody></table></div>`
+        : '<div class="empty">Market discovery has not loaded yet.</div>';
+    }
     const names = Object.fromEntries(COIN_SYMBOLS.map(c => [c, COINS[c].name]));
     if ($("assets")) $("assets").innerHTML = COIN_SYMBOLS.map(c => {
       const p = prices[c];
@@ -424,7 +446,12 @@
       $("holdings").innerHTML = rows.length
         ? rows.map(([c, q]) => {
             const marked = Number.isFinite(prices[c]) && prices[c] > 0;
-            return `<div class="asset"><strong>${c}</strong><span>${q.toFixed(8)} · ${marked ? eur(q * prices[c]) : "Market valuation unavailable"}</span></div>`;
+            const grossExit = marked ? q * prices[c] : NaN;
+            const estimatedSellFee = marked ? grossExit * FEE : NaN;
+            const netExit = marked ? grossExit - estimatedSellFee : NaN;
+            const basis = Number(state.costBasis?.[c]) || 0;
+            const netPnl = marked ? netExit - basis : NaN;
+            return `<div class="asset"><div><strong>${c}</strong><div class="sub">${q.toFixed(8)} · Est. sell fee ${marked ? eur(estimatedSellFee) : "—"} · Net proceeds ${marked ? eur(netExit) : "—"}</div></div><div class="price">${marked ? eur(grossExit) : "Market valuation unavailable"}<div class="sub">${marked ? "Net P/L after estimated sell fee: "+(netPnl>=0?"+":"")+eur(netPnl) : "P/L unavailable"}</div></div></div>`;
           }).join("")
         : '<div class="empty">No open positions.</div>';
     }
@@ -458,7 +485,7 @@
       speedStats.fetchMs=performance.now()-fetchStarted;
       speedStats.lastQuoteAt=Date.now(); speedStats.lastError=null;
       consecutivePriceFailures = 0; nextPriceRetryAt = 0;
-      prices = fresh.prices; priceTimestamps = fresh.timestamps;
+      prices = fresh.prices; priceTimestamps = fresh.timestamps; discoveredMarkets = fresh.discoveredMarkets || [];
       pricesUpdatedAt = Math.max(...Object.values(priceTimestamps));
       if (!state.basisInitialized) {
         state.costBasis = { ...initial().costBasis, ...(state.costBasis || {}) };
@@ -495,7 +522,7 @@
         supportedCoins.some(c => (wallet.holdings[c] ?? 0) > 0 &&
           (!Number.isFinite(quote[c]) || quote[c] <= 0)) ||
         !["buy", "sell"].includes(side) ||
-        !Number.isFinite(amount) || amount <= 0 || amount > MAX_ORDER) {
+        !Number.isFinite(amount) || amount <= 0 || amount <= 0) {
       return { ok: false, reason: "invalid-order" };
     }
 
@@ -565,7 +592,7 @@
     });
     if (!result.ok) {
       const messages = {
-        "invalid-order": "Enter a valid order between €0.01 and €50.",
+        "invalid-order": "Enter a valid positive order amount.",
         "daily-loss": "Buying paused by the simulated daily loss limit.",
         "insufficient-cash": "Insufficient virtual cash including fees.",
         "exposure-limit": "Virtual exposure limit would be exceeded.",
@@ -656,7 +683,7 @@
       const reasons = [];
       if (!prior) reasons.push("need a second distinct observation");
       if (state.paused) reasons.push("daily-loss safeguard active");
-      if (exposure() >= MAX_EXPOSURE) reasons.push("exposure cap reached");
+      
       if (state.cash < 1 + FEE) reasons.push("insufficient virtual cash");
       state.autoLastAction = "Fast check (" + latency + " ms): " +
         (reasons.length ? reasons.join("; ") : "no fresh signal cleared the fee-aware threshold") + ".";
@@ -666,11 +693,10 @@
     choices.sort((x, y) => y.score - x.score);
     const pick = choices[0];
     const budget = pick.side === "sell"
-      ? Math.min(MAX_ORDER, Math.max(0, Math.floor((state.holdings[pick.coin] || 0) * prices[pick.coin] * 100) / 100))
-      : Math.min(MAX_ORDER, Math.max(0, state.cash / (1 + FEE)),
-          Math.max(0, MAX_EXPOSURE - exposure()));
+      ? Math.max(0, Math.floor((state.holdings[pick.coin] || 0) * prices[pick.coin] * 100) / 100)
+      : Math.max(0, state.cash / (1 + FEE));
     const confidence = Math.max(0, Math.min(1, (pick.score - hurdle) / 0.02));
-    const targetAmount = Math.max(0.01, Math.round((1 + confidence * (MAX_ORDER - 1)) * 100) / 100);
+    const targetAmount = Math.max(0.01, Math.round(state.cash * (0.05 + confidence * 0.20) * 100) / 100);
     const amount = Math.min(budget, targetAmount);
     if (amount < 0.01) {
       state.autoLastAction = "Fast check (" + latency + " ms): blocked by available paper funds/exposure.";
@@ -718,7 +744,7 @@
   function buyBlockReason({ paused, amount, fee, cash, currentExposure }) {
     if (paused) return "daily-loss";
     if (amount + fee > cash) return "insufficient-cash";
-    if (currentExposure + amount > MAX_EXPOSURE) return "exposure-limit";
+    
     return null;
   }
 
@@ -996,7 +1022,7 @@
   }
 
   function reset() {
-    if (!confirm("Reset the virtual paper portfolio to €10 and clear all previous paper orders?")) return;
+    if (!confirm("Reset the virtual paper portfolio and clear all previous simulated orders?")) return;
     const nextState = initial();
     if (!commitState(nextState)) {
       say("report", "Reset cancelled because the browser could not save the new empty paper wallet. Existing wallet remains active.");
